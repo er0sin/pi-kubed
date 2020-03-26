@@ -1,0 +1,100 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Import vars from common
+  include_vars      : "../../common/{{ item }}/main.yml"
+  with_items        :
+  - defaults
+  - vars
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Sanity Check
+  assert            :
+    that            :
+    - groups.k8s_headmaster | length == 1
+    fail_msg        : Only 1 headmaster allowed
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Find headmaster
+  set_fact          :
+    headmaster      : "{{ groups.k8s_headmaster | first }}"
+  run_once          : True
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Generate cert
+  become            : True
+  delegate_to       : "{{ headmaster }}"
+  delegate_facts    : False
+  run_once          : True
+  shell             : "kubeadm init phase upload-certs --upload-certs | grep -v upload-certs"
+  register          : cert
+  changed_when      : False
+  tags              :
+  - init
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Print join command
+  delegate_to       : "{{ headmaster }}"
+  delegate_facts    : False
+  run_once          : True
+  command           : "kubeadm token create --print-join-command --certificate-key {{ cert.stdout }}"
+  register          : join_command
+  changed_when      : False
+  tags              :
+  - init
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Enable Secret Encryption (Part 1)
+  when              : features.encryption.enabled
+  import_tasks      : encryption.yml
+  tags              :
+  - encryption
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Join cluster
+  become            : True
+  command           : "{{ join_command.stdout }}"
+  args              :
+    creates         : /var/lib/kubelet/config.yaml
+  register          : join_result
+  until             : join_result.rc == 0
+  retries           : 3
+  delay             : 2
+  tags              :
+  - init
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Enable Secret Encryption (Part 2)
+  import_tasks      : "{{ role_path }}/../common/tasks/encryption.yml"
+  tags              :
+  - encryption
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create .kube dir
+  file              :
+    path            : "{{ ansible_user_dir }}/.kube"
+    state           : directory
+  tags              :
+  - kubeconfig
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Copy kubeconfig
+  become            : True
+  copy              :
+    remote_src      : True
+    src             : /etc/kubernetes/admin.conf
+    dest            : "{{ ansible_user_dir }}/.kube/config"
+    owner           : "{{ ansible_user_uid | string }}"
+    group           : "{{ ansible_user_gid | string }}"
+  tags              :
+  - kubeconfig
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Get labeled masters
+  command           : "kubectl get nodes -o=jsonpath='{.items[*].metadata.name}' -l node-role.kubernetes.io/master="
+  register          : labeled_master
+  until             : labeled_master.rc == 0
+  retries           : 3
+  delay             : 5
+  changed_when      : False
+  tags              :
+  - init
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Make sure node has master label
+  command           : "kubectl label nodes {{ ansible_hostname }} node-role.kubernetes.io/master="
+  when              : ansible_hostname not in labeled_master.stdout
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

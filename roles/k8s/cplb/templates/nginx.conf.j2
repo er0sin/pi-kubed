@@ -1,0 +1,21 @@
+load_module /usr/lib/nginx/modules/ngx_stream_module.so;
+events { }
+
+stream {
+    upstream backend {
+        least_conn;
+{% for host in groups['k8s'] %}
+        server {{ host }}:{{ master.in_port }} max_fails=1;
+{% endfor %}
+    }
+
+    server {
+        listen        {{ master.cplb_port }};
+        listen        {{ master.cplb_vip }}:{{ master.cplb_port }};
+        proxy_pass    backend;
+        proxy_timeout 60s;
+        proxy_connect_timeout 1s;
+        proxy_next_upstream on;
+    }
+
+}

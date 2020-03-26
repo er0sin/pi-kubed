@@ -1,0 +1,23 @@
+---
+apiVersion: kubeadm.k8s.io/v1beta2
+kind: InitConfiguration
+localAPIEndpoint:
+  bindPort: {{ master.in_port }}
+---
+apiVersion: kubeadm.k8s.io/v1beta2
+kind: ClusterConfiguration
+controlPlaneEndpoint: "{{ master.cplb_vip }}:{{ master.cplb_port }}"
+networking:
+  dnsDomain: "{{ cluster_dns_domain }}"
+apiServer:
+  extraArgs:
+{% if features.encryption.enabled %}
+    encryption-provider-config: {{ crypto_config }}
+{% endif %}
+---
+{% if kube_proxy_mode == 'ipvs' %}
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+mode: ipvs
+---
+{% endif %}

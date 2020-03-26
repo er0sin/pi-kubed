@@ -1,0 +1,37 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Check if encryption.conf exists
+  stat              :
+    path            : "{{ crypto_config }}"
+  register          : encryption_conf
+  become            : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create dir for crypto config
+  file              :
+    path            : "{{ crypto_config | dirname }}"
+    state           : directory
+    recurse         : True
+    owner           : root
+    group           : root
+    mode            : 0600
+  become            : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Generate Key
+  when              :
+  - not encryption_conf.stat.exists
+  # Ansible's b64encode filter doesn't support binary data, so encode in shell instead
+  shell             : "head -c {{ features.encryption.key_length }} /dev/urandom | base64"
+  register          : generated_key
+  no_log            : True
+  changed_when      : False
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Copy encryption.conf
+  when              :
+  - not encryption_conf.stat.exists
+  template          :
+    src             : "{{ role_path }}/../common/templates/encryption.conf.j2"
+    dest            : "{{ crypto_config }}"
+    mode            : 0600
+    owner           : root
+    group           : root
+  become            : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

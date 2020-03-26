@@ -1,0 +1,78 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Import vars from common
+  include_vars      : "../../common/{{ item }}/main.yml"
+  with_items        :
+  - defaults
+  - vars
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Terminate if ceph not enabled
+  when              : not (features.ceph.enabled | default(False))
+  meta              : end_play
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install Packages
+  become            : True
+  package           :
+    name            : "{{ item }}"
+    state           : latest
+    update_cache    : True
+  with_items        :
+  - xfsprogs
+  - lvm2
+  tags              :
+  - packages
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create /var/lib/rook
+  become            : True
+  when              :
+  - features.ceph.enabled | default(False)
+  - features.ceph.storage_device is defined
+  file              :
+    path            : /var/lib/rook
+    state           : directory
+    owner           : root
+    group           : root
+    mode            : 0700
+  tags              :
+  - mount
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create filesystem on block device
+  become            : True
+  when              :
+  - features.ceph.enabled | default(False)
+  - features.ceph.storage_device is defined
+  - features.ceph.storage_device != ''
+  - features.ceph.format == True
+  filesystem        :
+    fstype          : xfs
+    dev             : "{{ features.ceph.storage_device }}"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Add /var/lib/rook to /etc/fstab
+  become            : True
+  when              :
+  - features.ceph.enabled | default(False)
+  - features.ceph.storage_device is defined
+  lineinfile        :
+    path            : /etc/fstab
+    regexp          : '^{{ features.ceph.storage_device }}\s*\/var\/lib\/rook\s*xfs\s*.*$'
+    line            : "{{ features.ceph.storage_device }}             /var/lib/rook   xfs     defaults,nodev,nosuid,noexec,noatime  0       0"
+  tags              :
+  - mount
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Mount /var/lib/rook
+  become            : True
+  when              :
+  - features.ceph.enabled | default(False)
+  - features.ceph.storage_device is defined
+  mount             :
+    path            : /var/lib/rook
+    src             : "{{ features.ceph.storage_device }}"
+    state           : mounted
+    fstype          : xfs
+    opts            : defaults,nodev,nosuid,noexec,noatime
+  tags              :
+  - mount
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

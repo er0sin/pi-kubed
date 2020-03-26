@@ -1,0 +1,50 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Export CoreDNS configmap
+  shell             : "kubectl -n kube-system get configmap coredns -o yaml > {{ tempdir.path }}/coredns"
+  changed_when      : False
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Insert hostname's and IP's
+  blockinfile       : 
+    path            : "{{ tempdir.path }}/coredns"
+    insertafter     : '\s*\.\:53\s*\{' # Matches the string "    .:53 {"
+    marker          : "        # {mark} ANSIBLE MANAGED BLOCK"
+    block           : |2
+              hosts {
+                  {% for host in ansible_play_hosts -%}
+                  {{ hostvars[host].ansible_default_ipv4.address }} {{ host }}
+                  {% endfor -%}
+                  fallthrough
+              }
+  register          : insert
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Apply configmap
+  when              : insert.changed
+  command           : "kubectl apply -f {{ tempdir.path }}/coredns"
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Get CoreDNS's replica count
+  when              : insert.changed
+  shell             : kubectl -n kube-system get deploy coredns -o=jsonpath={% raw %}"{.spec.replicas}"{% endraw %}
+  register          : spec_replicas
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Scale CoreDNS to 0
+  when              : insert.changed
+  shell             : kubectl -n kube-system scale deployment coredns --replicas=0
+  register          : coredns_pods
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Scale CoreDNS back to {{ spec_replicas.stdout }}
+  when              : insert.changed
+  shell             : "kubectl -n kube-system scale deployment coredns --replicas={{ spec_replicas.stdout }}"
+  register          : coredns_pods
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

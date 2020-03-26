@@ -1,0 +1,66 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Control Plane Load Balancer
+master                 :
+  # cplb_vip - The virtual IP to give to keepalived
+  cplb_vip             : 192.168.1.20
+  cplb_port            : 8443
+  in_port              : 6443
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+cluster_dns_domain     : cluster.local
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# kube_proxy_mode - "iptables" or "ipvs"
+kube_proxy_mode        : iptables
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# cni_plugin - only weave supported currently
+cni_plugin             : weave
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+etcd                   :
+  # storage_device - To store etcd data on the root filesystem, leave this undefined
+  storage_device       : /dev/sda1
+  # format - If True, storage_device will be formated, and any existing data will be lost
+  format               : False
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+features               :
+  #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  metrics              :
+    enabled            : True
+    serviceaccount     : default
+    # dns_hack -  The metrics-server pod needs to be able to resolve your nodes' hostnames.
+    # If there's no DNS server that can resolve your nodes' hosnames, set this to true. Your
+    # nodes' hostnames/IPs will be written directly into CoreDNS's Corefile. If your nodes can
+    # resolve each other's hostnames without resorting to /etc/hosts, set this to false
+    dns_hack           : False
+  #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  # Encryption of k8s secrets at rest
+  encryption           :
+    enabled            : True
+    # algorithm - "aesbc", "secretbox", or "aesgcm"
+    algorithm          : aescbc
+    key_length         : 32
+  #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  # Load Balancing
+  metallb              :
+    enabled            : True
+    version            : v0.9.3
+    # mode - "L2" or "L3"
+    # Only "L2" mode implemented
+    mode               : L2
+    ip_range           :
+      start            : 192.168.1.40
+      end              : 192.168.1.50
+  #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  ceph                 :
+    # Not implemented
+    enabled            : False
+    storage_device     : /dev/sda2
+    format             : True
+  #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  minio                :
+    # Not implemented
+    enabled            : False
+  #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  ingress              :
+    # Not implemented
+    enabled            : False
+    type               : nginx-ingress
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

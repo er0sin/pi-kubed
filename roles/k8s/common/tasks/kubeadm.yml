@@ -1,0 +1,59 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Add Google apt key
+  become            : True
+  when              : ansible_pkg_mgr == "apt"
+  apt_key           :
+    url             : https://packages.cloud.google.com/apt/doc/apt-key.gpg
+    state           : present
+  tags              :
+  - packages
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Find apt repo for current architecture
+  when              : ansible_pkg_mgr == "apt"
+  uri               :
+    url             : "{{ apt_repo_base }}/dists/{{ item }}/main/binary-{{  arc_map[ansible_architecture].apt }}"
+    return_content  : False
+    status_code     :
+    - 200
+    - 404
+  with_items        : "{{ apt_repo_prefs }}"
+  register          : repos
+  tags              :
+  - packages
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Add apt repo
+  become            : True
+  when              : ansible_pkg_mgr == "apt"
+  apt_repository    :
+    repo            : "deb {{ apt_repo_base }}/ {{ (repos.results | selectattr('status', 'equalto', 200) | map(attribute='item') | list)[0] }} main"
+    state           : present
+  tags              :
+  - packages
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install kubeadm, kubelet, kubectl
+  become            : True
+  action            :
+    module          : "{{ ansible_pkg_mgr }}"
+    update_cache    : True
+    state           : latest
+    name            :
+    - kubeadm
+    - kubelet
+    - kubectl
+  tags              :
+  - packages
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Hold kubeadm, kubelet, kubectl
+  become            : True
+  action            :
+    module          : "{{ 'dpkg_selections' if ansible_pkg_mgr == 'apt' else 'command' }}"
+    name            : "{{ item if ansible_pkg_mgr == 'apt' else omit }}"
+    selection       : "{{ 'hold' if ansible_pkg_mgr == 'apt' else omit }}"
+    cmd             : "{{ 'yum versionlock ' + item if ansible_pkg_mgr == 'yum' else 'dnf versionlock add ' + item if ansible_pkg_mgr == 'dnf' else omit }}"
+  with_items        :
+  - kubeadm
+  - kubelet
+  - kubectl
+  tags              :
+  - packages
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

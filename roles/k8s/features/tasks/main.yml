@@ -1,0 +1,38 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Import vars from common
+  include_vars      : "../../common/{{ item }}/main.yml"
+  with_items        :
+  - defaults
+  - vars
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Sanity Check
+  assert            :
+    that            :
+    - groups.k8s_headmaster | length == 1
+    fail_msg        : Only 1 headmaster allowed
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Find headmaster
+  set_fact          :
+    headmaster      : "{{ groups.k8s_headmaster | first }}"
+  run_once          : True
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install metrics-server
+  when              : features.metrics.enabled
+  import_tasks      : metrics.yml
+  tags              :
+  - metrics
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install MetalLB
+  when              :
+  - features.metallb.enabled
+  - inventory_hostname == ansible_play_hosts_all[0] # "run_once" doesn't work when combined with "serial"
+  import_tasks      : metallb.yml
+  tags              :
+  - metallb
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

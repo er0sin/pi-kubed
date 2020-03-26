@@ -1,0 +1,49 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Get kube-proxy config
+  command           : kubectl -n kube-system get configmap kube-proxy -o jsonpath="{.data['config\.conf']}"
+  register          : kube_proxy_config
+  changed_when      : False
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Parse kube-proxy config
+  set_fact          :
+    config_conf     : "{{ kube_proxy_config.stdout | from_yaml }}"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Set mode to {{ kube_proxy_mode }}
+  set_fact          :
+    patch           :
+      data          :
+        config.conf : "{{ config_conf | combine({ 'mode':  'ipvs' if kube_proxy_mode == 'ipvs' else ''}) | to_nice_yaml(indent=2) | regex_replace(\"'\", '\"') }}"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create tempdir
+  tempfile          :
+    state           : directory
+  changed_when      : False
+  run_once          : True
+  register          : tempdir
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Save kube-proxy config
+  copy              :
+    content         : "{{ patch | to_nice_yaml(indent=2) }}"
+    dest            : "{{ tempdir.path }}/patch.yaml"
+  changed_when      : False
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Patch kube-proxy configmap
+  shell             : |
+                        kubectl -n kube-system patch configmap kube-proxy -p "$(cat {{ tempdir.path }}/patch.yaml)"
+  register          : patch
+  changed_when      : "'(no change)' not in patch.stdout"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Restart kube-proxy
+  when              : patch.changed
+  command           : "kubectl -n kube-system rollout restart daemonset/kube-proxy"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Wait for kube-proxy to restart
+  when              : patch.changed
+  command           : "kubectl -n kube-system rollout status -w daemonset/kube-proxy"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Delete tempdir
+  file              :
+    path            : "{{ tempdir.path }}"
+    state           : absent
+  changed_when      : False
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

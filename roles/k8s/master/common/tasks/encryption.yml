@@ -1,0 +1,36 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Read kube-apiserver.yaml
+  slurp             :
+    path            : /etc/kubernetes/manifests/kube-apiserver.yaml
+  become            : True
+  register          : apiserver_config
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Import kube-apiserver YAML
+  set_fact          :
+    apiserver_conf  : "{{ apiserver_config.content | b64decode | from_yaml }}"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Add encryption config to command
+  set_fact          :
+    containers_list : >-
+      {{ containers_list | default([])
+         + [item | combine(command_item if item.name == 'kube-apiserver' else [])]
+      }}  
+  vars              :
+    command         : "{{ (apiserver_conf.spec.containers | selectattr('name', 'equalto', 'kube-apiserver') | list | first).command }}"
+    command_new     : "{{ command if '--encryption-provider-config=' + crypto_config in command else command + ['--encryption-provider-config=' + crypto_config] }}"
+    command_item    : "{{ [ { 'command': command_new } ] }}"
+  loop              : "{{ apiserver_conf.spec.containers }}"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Assemble YAML
+  set_fact          :
+    apiserver_conf  : "{{ apiserver_conf | combine({ 'spec': {'containers': containers_list} }, recursive=True) }}"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Save YAML file
+  copy              :
+    content         : "{{ apiserver_conf | to_nice_yaml(indent=2) }}"
+    dest            : /etc/kubernetes/manifests/kube-apiserver.yaml
+    mode            : 0600
+    owner           : root
+    group           : root
+  become            : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

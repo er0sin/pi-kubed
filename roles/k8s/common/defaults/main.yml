@@ -1,0 +1,30 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Map from architecture reported by ansible to one used by apt and k8s
+arc_map                :
+  x86_64               :
+    apt                : amd64
+    k8s                : amd64
+  armv7l               :
+    apt                : armhf
+    k8s                : arm
+  aarch64              :
+    apt                : arm64
+    k8s                : arm64
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+apt_repo_base          : http://apt.kubernetes.io 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Will use the first repo in this list that has release for then current architecture
+# Applies to apt installations only
+apt_repo_prefs         :
+- kubernetes-disco
+- kubernetes-cosmic
+- kubernetes-bionic
+- kubernetes-artful
+- kubernetes-zesty
+- kubernetes-xenial
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+cni_urls               :
+  weave                : "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+crypto_config          : /etc/kubernetes/pki/encryption.conf
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

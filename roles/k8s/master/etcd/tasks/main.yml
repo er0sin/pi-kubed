@@ -1,0 +1,86 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Import vars from common
+  include_vars      : "../../common/{{ item }}/main.yml"
+  with_items        :
+  - defaults
+  - vars
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install xfsprogs
+  become            : True
+  when              :
+  - etcd.storage_device is defined
+  - etcd.storage_device != ''
+  package           :
+    name            : xfsprogs
+    state           : latest
+    update_cache    : True
+  tags              :
+  - etcd
+  - mount
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create /var/lib/etcd
+  become            : True
+  when              :
+  - etcd.storage_device is defined
+  - etcd.storage_device != ''
+  file              :
+    path            : /var/lib/etcd
+    state           : directory
+    owner           : root
+    group           : root
+    mode            : 0700
+  tags              :
+  - etcd
+  - mount
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Unmount /var/lib/etcd
+  become            : True
+  when              :
+  - etcd.storage_device is defined
+  - etcd.storage_device != ''
+  - etcd.format == True
+  mount             :
+    path            : /var/lib/etcd
+    src             : "{{ etcd.storage_device }}"
+    state           : unmounted
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create filesystem on block device
+  become            : True
+  when              :
+  - etcd.storage_device is defined
+  - etcd.storage_device != ''
+  - etcd.format == True
+  filesystem        :
+    fstype          : xfs
+    dev             : "{{ etcd.storage_device }}"
+    force           : "{{ etcd_force_format | default(False) }}"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Add /var/lib/etcd to /etc/fstab
+  become            : True
+  when              :
+  - etcd.storage_device is defined
+  - etcd.storage_device != ''
+  lineinfile        :
+    path            : /etc/fstab
+    regexp          : '^{{ etcd.storage_device }}\s*\/var\/lib\/etcd\s*xfs\s*.*$'
+    line            : "{{ etcd.storage_device }}             /var/lib/etcd   xfs     defaults,nodev,nosuid,noexec,noatime  0       0"
+  tags              :
+  - etcd
+  - mount
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Mount /var/lib/etcd
+  become            : True
+  when              :
+  - etcd.storage_device is defined
+  - etcd.storage_device != ''
+  mount             :
+    path            : /var/lib/etcd
+    src             : "{{ etcd.storage_device }}"
+    state           : mounted
+    fstype          : xfs
+    opts            : defaults,nodev,nosuid,noexec,noatime
+  tags              :
+  - etcd
+  - mount

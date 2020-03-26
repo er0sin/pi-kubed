@@ -1,0 +1,24 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install MetalLB manifests
+  command           : "kubectl apply -f https://raw.githubusercontent.com/google/metallb/{{ features.metallb.version }}/manifests/{{ item }}"
+  register          : manifest
+  changed_when      : "'created' in manifest.stdout"
+  with_items        :
+  - namespace.yaml
+  - metallb.yaml
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create memberlist secret
+  shell             : |
+    kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)"
+  register          : secret
+  changed_when      : "'created' in secret.stdout"
+  failed_when       :
+  - secret.rc != 0
+  - "'AlreadyExists' not in secret.stderr"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create config
+  shell             : |
+    echo "{{ lookup('template', 'templates/metallb-config.yaml.j2') }}" | kubectl apply -f -
+  register          : config
+  changed_when      : "'unchanged' not in config.stdout"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

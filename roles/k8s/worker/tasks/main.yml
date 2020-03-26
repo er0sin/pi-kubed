@@ -1,0 +1,101 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Import vars from common
+  include_vars      : "../../common/{{ item }}/main.yml"
+  with_items        :
+  - defaults
+  - vars
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Sanity Check
+  assert            :
+    that            :
+    - groups.k8s_headmaster | length == 1
+    fail_msg        : Only 1 headmaster allowed
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Find headmaster
+  set_fact          :
+    headmaster      : "{{ groups.k8s_headmaster | first }}"
+  run_once          : True
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Rewrite secrets & verify encryption
+  when              :
+  - features.encryption.enabled
+  - inventory_hostname == ansible_play_hosts_all[0] # "run_once" doesn't work when combined with "serial"
+  import_tasks      : encryption.yml
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+  tags              :
+  - encryption
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Print join command
+  when              :
+  - "'k8s_masters' not in group_names"
+  - "'k8s_headmaster' not in group_names"
+  delegate_to       : "{{ headmaster }}"
+  delegate_facts    : False
+  run_once          : True
+  command           : "kubeadm token create --print-join-command"
+  register          : join_command
+  changed_when      : False
+  tags              :
+  - init
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Enable scheduling (if node is also a master)
+  when              : "'k8s_masters' in group_names or 'k8s_headmaster' in group_names"
+  # node will have joined as a master by now, so just enable scheduling by removing the master taint
+  command           : "kubectl taint nodes {{ ansible_hostname }} node-role.kubernetes.io/master-"
+  register          : untaint
+  changed_when      : untaint.rc == 0
+  failed_when       : untaint.rc != 0 and 'taint "node-role.kubernetes.io/master" not found' not in untaint.stderr
+  retries           : 3
+  delay             : 1
+  until             : untaint.rc == 0 or 'taint "node-role.kubernetes.io/master" not found' in untaint.stderr
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Join cluster
+  when              :
+  - "'k8s_masters' not in group_names"
+  - "'k8s_headmaster' not in group_names"
+  become            : True
+  command           : "{{ join_command.stdout }}"
+  args              :
+    creates         : /var/lib/kubelet/config.yaml
+  register          : join_res
+  retries           : 3
+  delay             : 5
+  until             : join_res.rc == 0
+  tags              :
+  - init
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create .kube dir
+  file              :
+    path            : "{{ ansible_user_dir }}/.kube"
+    state           : directory
+  tags              :
+  - kubeconfig
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Pull kubeconfig from master to ansible control host # kubeadm join on worker doesn't create admin.conf for some reason
+  become            : True
+  slurp             :
+    src             : /etc/kubernetes/admin.conf
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+  register          : master_kubeconfig
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Copy kubeconfig to worker
+  when              :
+  - "'k8s_masters' not in group_names"
+  - "'k8s_headmaster' not in group_names"
+  become            : True
+  copy              :
+    content         : "{{ master_kubeconfig.content | b64decode }}"
+    dest            : "{{ ansible_user_dir }}/.kube/config"
+    owner           : "{{ ansible_user_uid | string }}"
+    group           : "{{ ansible_user_gid | string }}"
+  tags              :
+  - kubeconfig
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

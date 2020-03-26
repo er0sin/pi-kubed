@@ -1,0 +1,69 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create tempdir
+  tempfile          :
+    state           : directory
+  changed_when      : False
+  register          : tempdir
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Set Locale
+  become            : True
+  shell             : |
+    cp /etc/locale.gen {{ tempdir.path }}/locale.gen.tmp
+    cp /etc/default/locale {{ tempdir.path }}/locale.tmp
+    raspi-config nonint do_change_locale "{{ locale }}"
+    ((! cmp -s /etc/locale.gen {{ tempdir.path }}/locale.gen.tmp) || (! cmp -s /etc/default/locale {{ tempdir.path }}/locale.tmp)) && echo  "for_ansible:changed" || true
+    rm -f {{ tempdir.path }}/locale.geni.tmp {{ tempdir.path }}/locale.tmp
+  changed_when      : "'for_ansible:changed' in set_locale.stdout"
+  register          : set_locale
+  tags              :
+  - locale
+  - pi
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Set Timezone
+  become            : True
+  shell             : |
+    cp /etc/timezone {{ tempdir.path }}/timezone.tmp
+    raspi-config nonint do_change_timezone "{{ timezone }}"
+    (! cmp -s /etc/timezone {{ tempdir.path }}/timezone.tmp) && echo  "for_ansible:changed" || true
+    rm -f {{ tempdir.path }}/timezone.tmp
+  changed_when      : "'for_ansible:changed' in set_timezone.stdout"
+  register          : set_timezone
+  tags              :
+  - timezone
+  - pi
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Set Keyboard layout
+  become            : True
+  shell             : |
+    cp /etc/default/keyboard {{ tempdir.path }}/keyboard.tmp
+    raspi-config nonint do_configure_keyboard "{{ keyboard }}"
+    (! cmp -s /etc/default/keyboard {{ tempdir.path }}/keyboard.tmp) && echo  "for_ansible:changed" || true
+    rm -f {{ tempdir.path }}/keyboard.tmp
+  changed_when      : "'for_ansible:changed' in set_keyboard.stdout"
+  register          : set_keyboard
+  tags              :
+  - locale
+  - pi
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Set Memory Split
+  become            : True
+  shell             : |
+    [ "$(vcgencmd get_mem gpu | cut -d '=' -f 2 | cut -d 'M' -f 1)" = "{{ pi_gpu_mem }}" ] && exit 0 || true
+    raspi-config nonint do_memory_split {{ pi_gpu_mem }} && echo  "for_ansible:changed"
+  changed_when      : "'for_ansible:changed' in set_memsplit.stdout"
+  register          : set_memsplit
+  notify            :
+  - Reboot
+  tags              :
+  - pi
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Delete tempdir
+  file              :
+    path            : "{{ tempdir.path }}"
+    state           : absent
+  changed_when      : False
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

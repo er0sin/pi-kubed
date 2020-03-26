@@ -1,0 +1,34 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create tempdir
+  tempfile          :
+    state           : directory
+  changed_when      : False
+  register          : tempdir
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Set Locale & Keyboard layout
+  become            : True
+  shell             : |
+    locale > {{ tempdir.path }}/locale.before
+    localectl set-locale LANG="{{ locale }}"
+    localectl set-x11-keymap LAYOUT="{{ keyboard }}"
+    locale > {{ tempdir.path }}/locale.after
+    (! cmp -s {{ tempdir.path }}/locale.before {{ tempdir.path }}/locale.after) && echo  "for_ansible:changed" || true
+    rm -f {{ tempdir.path }}/locale.before {{ tempdir.path }}/locale.after
+  changed_when      : "'for_ansible:changed' in set_locale.stdout"
+  register          : set_locale
+  tags              :
+  - locale
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Set Timezone
+  become            : True
+  timezone          :
+    name            : "{{ timezone }}"
+  tags              :
+  - timezone
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Delete tempdir
+  file              :
+    path            : "{{ tempdir.path }}"
+    state           : absent
+  changed_when      : False
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

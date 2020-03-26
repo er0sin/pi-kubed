@@ -1,0 +1,39 @@
+[k8s_cplb]
+# Define control plane load balancer nodes here.
+# These nodes will run nginx + keepalived to load balance
+# control plane traffic to your k8s masters.
+# They don't have to be the same nodes as k8s masters, but
+# in most cases they will be
+daisy     ansible_user=pi pi_gpu_mem=16
+buttercup ansible_user=pi pi_gpu_mem=16
+milkshake ansible_user=pi pi_gpu_mem=16
+
+[k8s_headmaster]
+# The first master (control plane) node
+# to get initialised. This may seem like
+# an arbitrary distinction, but kubeadm
+# treats them differently.
+# Only one node can be defined here.
+daisy     ansible_user=pi  pi_gpu_mem=16
+
+[k8s_masters]
+# Other master nodes.
+# Will be initialised after k8s_headmaster
+milkshake ansible_user=pi pi_gpu_mem=16
+buttercup ansible_user=pi pi_gpu_mem=16
+
+[k8s_workers]
+# Worker nodes. They may or may not be\
+# The same as the master nodes.
+# In production, the masters and workers
+# should be on seperate nodes
+daisy     ansible_user=pi pi_gpu_mem=16
+buttercup ansible_user=pi pi_gpu_mem=16
+milkshake ansible_user=pi pi_gpu_mem=16
+meatloaf  ansible_user=pi pi_gpu_mem=16
+
+[k8s:children]
+k8s_cplb
+k8s_headmaster
+k8s_masters
+k8s_workers

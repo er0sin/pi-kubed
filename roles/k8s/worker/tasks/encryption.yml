@@ -1,0 +1,37 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Rewrite secrets
+  when              : features.encryption.enabled
+  shell             : "kubectl get secrets --all-namespaces -o json | kubectl replace -f -"
+  register          : rewrite
+  changed_when      : "'replaced' in rewrite.stdout"
+  until             : rewrite.rc == 0
+  retries           : 3
+  delay             : 5
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Get secret names from k8s
+  shell             : "kubectl get secrets --all-namespaces --no-headers | awk '{print $1\"/\"$2}'"
+  changed_when      : False
+  register          : k8s_secrets
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Get secrets from etcd
+  command           : >
+    etcdctl --endpoints 127.0.0.1:2379
+            --cacert /etc/kubernetes/pki/etcd/ca.crt
+            --cert /etc/kubernetes/pki/etcd/server.crt
+            --key /etc/kubernetes/pki/etcd/server.key
+            get /registry/secrets/{{ item }}
+  environment       :
+    ETCDCTL_API     : 3
+  become            : True
+  with_items        : "{{ k8s_secrets.stdout_lines }}"
+  no_log            : True
+  changed_when      : False
+  register          : etcd_secrets
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Ensure all secrets are encrypted
+  assert            :
+    that            :
+    - "'k8s:enc:' + features.encryption.algorithm in item.stdout"
+  with_items        : "{{ etcd_secrets.results }}"
+  no_log            : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

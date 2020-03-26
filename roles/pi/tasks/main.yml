@@ -1,0 +1,44 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Set locale, keyboard-layout, timezone, and memory split on raspberry pi nodes
+- name              : Setup Raspberry pi
+  include_tasks     : raspi-config.yml
+  when              : ansible_lsb.id == "Raspbian"
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Set locale, keyboard-layout, and timezone on non raspberry pi nodes
+- name              : Configure locale settings
+  include_tasks     : locale.yml
+  when              : ansible_lsb.id != "Raspbian"
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Set hostname
+  become            : True
+  hostname          :
+    name            : "{{ inventory_hostname }}"
+  notify            :
+  - Reboot
+  tags              :
+  - hostname
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Set hostname in /etc/hosts
+  become            : True
+  lineinfile        :
+    path            : /etc/hosts
+    regexp          : '^127.0.[0-1].1\s*(raspberrypi|{{ inventory_hostname }})\s*$'
+    line            : "127.0.0.1\t{{ inventory_hostname }}"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Upgrade packages
+  become            : True
+  action            :
+    module          : "{{ ansible_pkg_mgr }}"
+    update_cache    : True
+    upgrade         : "{{ 'dist' if ansible_pkg_mgr == 'apt' else omit }}"
+    name            : "{{ '*' if ansible_pkg_mgr == 'yum' or ansible_pkg_mgr == 'dnf' else omit }}"
+    state           : "{{ 'latest' if ansible_pkg_mgr == 'yum' or ansible_pkg_mgr == 'dnf' else omit }}"
+  notify            :
+  - Reboot
+  tags              :
+  - packages
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

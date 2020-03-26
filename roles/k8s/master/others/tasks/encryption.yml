@@ -1,0 +1,44 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create dir for crypto config
+  file              :
+    path            : "{{ crypto_config | dirname }}"
+    state           : directory
+    recurse         : True
+    owner           : root
+    group           : root
+    mode            : 0600
+  become            : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create tempfile
+  local_action      :
+    module          : tempfile
+  register          : tempfile
+  changed_when      : False
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Fetch encryption.conf from headmaster
+  fetch             :
+    src             : "{{ crypto_config }}"
+    dest            : "{{ tempfile.path }}"
+    mode            : 0600
+    flat            : True
+  delegate_to       : "{{ headmaster }}" 
+  run_once          : True
+  changed_when      : False
+  become            : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Copy encryption.conf
+  copy              :
+    src             : "{{ tempfile.path }}"
+    dest            : "{{ crypto_config }}"
+    mode            : 0600
+    owner           : root
+    group           : root
+  become            : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Cleanup tempfile
+  local_action      :
+    module          : file
+    path            : "{{ tempfile.path }}"
+    state           : absent
+  changed_when      : False
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

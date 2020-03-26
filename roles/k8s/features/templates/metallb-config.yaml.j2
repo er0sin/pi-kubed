@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: metallb-system
+  name: config
+data:
+  config: |
+    address-pools:
+    - name: default
+      protocol: {{ 'layer2' if features.metallb.mode == 'L2' else 'bgp' if features.metallb.mode == 'L3' else '' }}
+      addresses:
+      - {{ features.metallb.ip_range.start }}-{{ features.metallb.ip_range.end }}

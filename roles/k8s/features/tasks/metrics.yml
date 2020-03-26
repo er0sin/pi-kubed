@@ -1,0 +1,185 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install git
+  become            : True
+  package           :
+    name            : git
+    state           : latest
+    update_cache    : True
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create tempdir
+  tempfile          :
+    state           : directory
+  changed_when      : False
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+  register          : tempdir
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Import dns_hack.yml
+  when              : features.metrics.dns_hack | default(False)
+  import_tasks      : dns_hack.yml
+  vars              :
+    tempdir         : "{{ tempdir }}"
+  tags              :
+  - dns_hack
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Disable sslVerify for github
+  become            : True
+  git_config        :
+    name            : http.sslVerify
+    value           : "false"
+    repo            : https://github.com/kubernetes-incubator/metrics-server
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Clone metrics server repo
+  git               :
+    repo            : https://github.com/kubernetes-incubator/metrics-server
+    dest            : "{{ tempdir.path }}"
+    depth           : 1
+  changed_when      : False
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Adjust deployment for current cpu arch
+  when              : ansible_architecture != 'x86_64'
+  replace           :
+    path            : "{{ tempdir.path }}/deploy/kubernetes/metrics-server-deployment.yaml"
+    regexp          : "amd64"
+    replace         : "{{ arc_map[ansible_architecture].k8s }}"
+  changed_when      : False
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install metrics server
+  shell             : kubectl apply -f "{{ tempdir.path }}/deploy/kubernetes" --dry-run={{ ansible_check_mode }}
+  register          : metrics_install
+  changed_when      : "'created' in metrics_install.stdout or 'configured' in metrics_install.stdout"
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create bootstrap token
+  become            : True
+  command           : kubeadm token create
+  args              :
+    creates         : /etc/kubernetes/bootstrap-kubelet.conf
+  register          : token
+  delegate_to       : "{{ headmaster }}"
+  run_once          : False
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Generate bootstrap config
+  command           : >
+    kubectl config set-cluster bootstrap
+    --kubeconfig=/tmp/bootstrap-kubelet.conf
+    --certificate-authority='/etc/kubernetes/pki/ca.crt'
+    --server {{ ansible_default_ipv4.address }}:{{ master.in_port }}
+  args              :
+    creates         : /etc/kubernetes/bootstrap-kubelet.conf
+  register          : set_cluster
+  changed_when      : "'set' in set_cluster.stdout"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Associate bootstrap token to kubelet-bootstrap user
+  command           : >
+    kubectl config set-credentials kubelet-bootstrap
+    --kubeconfig=/tmp/bootstrap-kubelet.conf 
+    --token={{ token.stdout }}
+  args              :
+    creates         : /etc/kubernetes/bootstrap-kubelet.conf
+  register          : set_credentials
+  changed_when      : "'set' in set_credentials.stdout"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Set context for kubelet-bootstrap user
+  command           : >
+    kubectl config set-context bootstrap
+    --kubeconfig=/tmp/bootstrap-kubelet.conf
+    --user=kubelet-bootstrap --cluster=bootstrap
+  args              :
+    creates         : /etc/kubernetes/bootstrap-kubelet.conf
+  register          : set_context
+  changed_when      : "'created' in set_context.stdout"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create bootstrap-kubelet.conf
+  command           : >
+    kubectl config use-context bootstrap
+    --kubeconfig=/tmp/bootstrap-kubelet.conf
+  args              :
+    creates         : /etc/kubernetes/bootstrap-kubelet.conf
+  register          : use_context
+  changed_when      : "'Switched to context' in use_context.stdout"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Copy to bootstrap-kubelet.conf to /etc/kubernetes
+  become            : True
+  when              : "'/tmp/bootstrap-kubelet.conf' is is_file"
+  copy              :
+    remote_src      : True
+    src             : "/tmp/bootstrap-kubelet.conf"
+    dest            : /etc/kubernetes/bootstrap-kubelet.conf
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Check if server certificate rotation is enabled
+  become            : True
+  command           : "grep -q 'rotate-server-certificates' /var/lib/kubelet/kubeadm-flags.env"
+  register          : rotation
+  changed_when      : False
+  failed_when       : rotation.rc > 1
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Enable server certificate rotation in kubelet
+  when              : rotation.rc != 0
+  become            : True
+  command           : |
+    sed -i 's/"/ --rotate-server-certificates"/2' /var/lib/kubelet/kubeadm-flags.env
+  args              :
+    warn            : False
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Rename old kubelet config
+  when              : "'/etc/kubernetes/kubelet.conf' is is_file"
+  become            : True
+  command           : "mv /etc/kubernetes/kubelet.conf /etc/kubernetes/kubelet.old"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Restart kubelet
+  become            : True
+  systemd           :
+    name            : kubelet
+    state           : restarted
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Wait until node Ready
+  command           : kubectl get node {{ ansible_hostname }} -o jsonpath={% raw %}"{.status.conditions[?(@.status==\"True\")].type}"{% endraw %}
+  retries           : 5
+  delay             : 5
+  register          : node_status
+  until             : node_status.stdout == "Ready"
+  changed_when      : False
+  tags              :
+  - csr
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Find pending CSRs
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+  shell             : "kubectl get csr | grep Pending | awk '{print $1}'"
+  register          : csr
+  changed_when      : False
+  tags              :
+  - csr
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Approve CSR
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+  when              : csr.stdout
+  command           : "kubectl certificate approve {{ item }}"
+  with_items        : "{{ csr.stdout_lines }}"
+  tags:
+  - csr
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Delete /tmp/bootstrap-kubelet.conf
+  file              :
+    path            : /tmp/bootstrap-kubelet.conf
+    state           : absent
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Delete tempdir
+  file              :
+    path            : "{{ tempdir.path }}"
+    state           : absent
+  changed_when      : False
+  delegate_to       : "{{ headmaster }}"
+  run_once          : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

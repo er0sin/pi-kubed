@@ -1,0 +1,65 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Import vars from common
+  include_vars      : "../common/{{ item }}/main.yml"
+  with_items        :
+  - defaults
+  - vars
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install packages
+  become            : True
+  package           :
+    name            : "{{ item }}"
+    state           : latest
+    update_cache    : True
+  with_items        :
+  - nginx
+  - keepalived
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Copy nginx.conf
+  become            : True
+  template          :
+    src             : templates/nginx.conf.j2
+    dest            : /etc/nginx/nginx.conf
+  register          : nginx_conf
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Start NGINX
+  become            : True
+  systemd           :
+    name            : nginx
+    state           : "{{ 'restarted' if nginx_conf.changed else 'started' }}"
+    enabled         : True
+  no_log            : True # log for this is useless and verbose
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Check if keepalived.conf exists
+  stat              :
+    path            : /etc/keepalived/keepalived.conf
+  register          : keepalived_conf
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Generate Key
+  when              :
+  - not keepalived_conf.stat.exists
+  # Ansible's b64encode filter doesn't support binary data, so encode in shell instead
+  shell             : "head -c 16 /dev/urandom | base64"
+  register          : generated_key
+  no_log            : True
+  changed_when      : False
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Copy keepalived.conf
+  when              :
+  - not keepalived_conf.stat.exists
+  become            : True
+  template          :
+    src             : templates/keepalived.conf.j2
+    dest            : /etc/keepalived/keepalived.conf
+  register          : keepalived_conf
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Start keepalived
+  become            : True
+  systemd           :
+    name            : keepalived
+    state           : "{{ 'restarted' if keepalived_conf.changed else 'started' }}"
+    enabled         : True
+  no_log            : True # log for this is useless and verbose
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

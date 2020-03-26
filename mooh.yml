@@ -1,0 +1,48 @@
+# 1. Install Ansible
+# 2. Define your nodes in "hosts" file
+# 3. Make sure you have passwordless sudo on the nodes, and passwordless SSH to the nodes from the host where you run ansible
+# 4. Adjust settings in "roles/k8s/common/vars/main.yml"
+# 5. Adjust locale settings in roles/pi/vars/main.yml 
+# 6. Run "ansible-playbook -v mooh.yml" 
+# 7. Profit
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Preliminary setup
+- hosts             : k8s
+  roles             :
+  - pi
+  - k8s/common
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Control Plane Load Balancer
+- hosts             : k8s_cplb
+  roles             :
+  - k8s/cplb
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# etcd
+- hosts             :
+  - k8s_headmaster
+  - k8s_masters
+  roles             :
+  - k8s/master/etcd
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# First k8s master
+- hosts             : k8s_headmaster
+  roles             :
+  - k8s/master/first
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Additional k8s masters
+- hosts             : k8s_masters
+  serial            : 1 # kubeadm is touchy about paralell joins
+  roles             :
+  - k8s/master/others
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# k8s workers
+- hosts             : k8s_workers
+  serial            : 1 # kubeadm is touchy about paralell joins
+  roles             :
+  - k8s/worker
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# misc features
+- hosts             : k8s
+  roles             :
+  - k8s/features
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

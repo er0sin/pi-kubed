@@ -1,0 +1,10 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Restart docker
+  become            : True
+  systemd           :
+    name            : docker
+    state           : restarted
+    enabled         : True
+    daemon_reload   : True
+  no_log            : True # log for this is useless and verbose
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

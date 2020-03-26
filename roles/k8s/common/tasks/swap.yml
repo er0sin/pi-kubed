@@ -1,0 +1,43 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Check for swap
+  become            : True
+  command           : swapon --summary
+  changed_when      : False
+  register          : swapon
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Disable swap
+  when              :
+  - swapon.stdout != ""
+  - ansible_os_family == "Debian"
+  become            : True
+  shell             : |
+    dphys-swapfile swapoff
+    dphys-swapfile uninstall
+    update-rc.d dphys-swapfile remove
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Disable swap in config
+  when              :
+  - swapon.stdout != ""
+  - ansible_os_family == "Debian"
+  become            : True
+  lineinfile        :
+    path            : /etc/dphys-swapfile
+    regexp          : '^\s*CONF_SWAPSIZE\s*=.*$'
+    line            : 'CONF_SWAPSIZE=0'
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Disable swap
+  when              :
+  - swapon.stdout != ""
+  - ansible_os_family != "Debian"
+  command           : swapoff -a
+  become            : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Disable swap in fstab
+  when              :
+  - swapon.stdout != ""
+  - ansible_os_family != "Debian"
+  replace           :
+    path            : /etc/fstab
+    regexp          : '^(.+?\sswap\s+sw\s+.*)$'
+    replace         : '# \1'
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

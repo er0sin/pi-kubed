@@ -1,0 +1,36 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install ipset
+  become            : True
+  action            :
+    module          : "{{ ansible_pkg_mgr }}"
+    update_cache    : True
+    state           : latest
+    name            : ipset
+  tags              :
+  - kube-proxy
+  - ipvs
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Load IPVS kernel modules
+  become            : True
+  modprobe          :
+    name            : "{{ item }}"
+    state           : present
+  with_items        :
+  - ip_vs
+  - ip_vs_rr
+  - ip_vs_wrr
+  - ip_vs_sh
+  - "{{ 'nf_conntrack_ipv4' if ansible_kernel is version_compare('4.19','<') else 'nf_conntrack' }}"
+  tags              :
+  - kube-proxy
+  - ipvs
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Make sure IPVS kernel modules are loaded at boot
+  become            : True
+  template          :
+    src             : templates/ipvs.conf.j2
+    dest            : /etc/modules-load.d/ipvs.conf
+  tags              :
+  - kube-proxy
+  - ipvs
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

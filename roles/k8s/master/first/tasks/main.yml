@@ -1,0 +1,93 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Import vars from common
+  include_vars      : "../../common/{{ item }}/main.yml"
+  with_items        :
+  - defaults
+  - vars
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Sanity Check
+  assert            :
+    that            :
+    - ansible_play_hosts | length == 1
+    - ansible_play_hosts == groups.k8s_headmaster
+    fail_msg        : Only 1 headmaster allowed
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Find headmaster
+  set_fact          :
+    headmaster      : "{{ ansible_play_hosts | first }}"
+  run_once          : True
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Enable Secret Encryption (Part 1)
+  when              : features.encryption.enabled
+  import_tasks      : encryption.yml
+  tags              :
+  - encryption
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Copy cluster config
+  template          :
+    src             : templates/cluster-config.yaml.j2
+    dest            : /tmp/cluster-config.yaml
+  tags              :
+  - init
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : kubeadm init
+  become            : True
+  command           : "kubeadm init --upload-certs --config /tmp/cluster-config.yaml"
+  args              :
+    creates         : /var/lib/kubelet/config.yaml
+  register          : kubeadm_init
+  tags              :
+  - init
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Cleanup cluster config
+  file              :
+    path            : /tmp/cluster-config.yaml
+    state           : absent
+  tags              :
+  - init
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Enable Secret Encryption (Part 2)
+  when              : features.encryption.enabled
+  import_tasks      : "{{ role_path }}/../common/tasks/encryption.yml"
+  tags              :
+  - encryption
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Create .kube dir
+  file              :
+    path            : "{{ ansible_user_dir }}/.kube"
+    state           : directory
+  tags              :
+  - kubeconfig
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Copy kubeconfig
+  become            : True
+  copy              :
+    remote_src      : True
+    src             : /etc/kubernetes/admin.conf
+    dest            : "{{ ansible_user_dir }}/.kube/config"
+    owner           : "{{ ansible_user_uid | string }}"
+    group           : "{{ ansible_user_gid | string }}"
+  tags              :
+  - kubeconfig
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install CNI plugin
+  shell             : kubectl apply -f "{{ cni_urls[cni_plugin] }}" --dry-run={{ ansible_check_mode }}
+  register          : cni_install
+  changed_when      : "'created' in cni_install.stdout"
+  retries           : 3
+  delay             : 5
+  until             : cni_install.rc == 0
+  tags              :
+  - cni
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Configure kube-proxy
+  import_tasks      : kube-proxy.yml
+  tags              :
+  - kube-proxy
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

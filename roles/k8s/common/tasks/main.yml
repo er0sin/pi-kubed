@@ -1,0 +1,74 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Assemble /etc/hosts
+  become            : True
+  template          :
+    src             : templates/hosts.j2
+    dest            : /etc/hosts
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install package management tools
+  become            : True
+  action            :
+    module          : "{{ ansible_pkg_mgr }}"
+    update_cache    : True
+    state           : latest
+    name            : "{{ ['aptitude', 'apt-transport-https'] if ansible_pkg_mgr =='apt' else 'yum-versionlock' if ansible_pkg_mgr == 'yum' else 'python-dnf-plugins-extras-versionlock' if ansible_pkg_mgr == 'dnf' else [] }}"
+  tags              :
+  - packages
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Setup Docker
+  import_tasks      : docker.yml
+  tags              :
+  - docker
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Disable swap
+  import_tasks      : swap.yml
+  tags              :
+  - swap
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Enable cgroups
+  when              : ansible_lsb.id == "Raspbian"
+  become            : True
+  lineinfile        :
+    path            : /boot/cmdline.txt
+    regexp          : '(^.* rootwait)(cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory)?'
+    line            : '\1 cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory'
+    backrefs        : True
+  register          : enable_cgroups
+  tags              :
+  - cgroups
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# https://discuss.kubernetes.io/t/kubernetes-compatible-with-debian-10-buster/7853
+- name              : Switch to legacy iptables
+  become            : True
+  when              : ansible_distribution_release == "buster"
+  alternatives      :
+    name            : iptables
+    path            : /usr/sbin/iptables-legacy
+  tags              :
+  - iptables
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Setup IPVS
+  when              : kube_proxy_mode == "ipvs"
+  import_tasks      : ipvs.yml
+  tags              :
+  - ipvs
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Reboot if necessary
+  become            : True
+  when              : enable_cgroups is changed
+  reboot            :
+  tags              :
+  - cgroups
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Set kernel parameters
+  become            : True
+  sysctl            :
+    name            : net.bridge.bridge-nf-call-iptables
+    value           : "1"
+    sysctl_set      : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install kubeadm, kubelet, kubectl
+  import_tasks      : kubeadm.yml
+  tags              :
+  - kubeadm
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
