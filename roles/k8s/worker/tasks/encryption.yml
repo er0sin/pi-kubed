@@ -13,6 +13,14 @@
   changed_when      : False
   register          : k8s_secrets
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install etcd client to verify etcd is encrypted
+  become            : True
+  action            :
+    module          : "{{ ansible_pkg_mgr }}"
+    update_cache    : True
+    state           : latest
+    name            : etcd-client
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Get secrets from etcd
   command           : >
     etcdctl --endpoints 127.0.0.1:2379

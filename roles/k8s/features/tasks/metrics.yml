@@ -24,20 +24,12 @@
   tags              :
   - dns_hack
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- name              : Disable sslVerify for github
-  become            : True
-  git_config        :
-    name            : http.sslVerify
-    value           : "false"
-    repo            : https://github.com/kubernetes-incubator/metrics-server
-  delegate_to       : "{{ headmaster }}"
-  run_once          : True
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Clone metrics server repo
   git               :
     repo            : https://github.com/kubernetes-incubator/metrics-server
-    dest            : "{{ tempdir.path }}"
+    dest            : "{{ tempdir.path }}/metrics"
     depth           : 1
+    version         : "{{ features.metrics.branch }}"
   changed_when      : False
   delegate_to       : "{{ headmaster }}"
   run_once          : True
@@ -45,7 +37,7 @@
 - name              : Adjust deployment for current cpu arch
   when              : ansible_architecture != 'x86_64'
   replace           :
-    path            : "{{ tempdir.path }}/deploy/kubernetes/metrics-server-deployment.yaml"
+    path            : "{{ tempdir.path }}/metrics/deploy/1.8+/metrics-server-deployment.yaml"
     regexp          : "amd64"
     replace         : "{{ arc_map[ansible_architecture].k8s }}"
   changed_when      : False
@@ -53,11 +45,15 @@
   run_once          : True
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Install metrics server
-  shell             : kubectl apply -f "{{ tempdir.path }}/deploy/kubernetes" --dry-run={{ ansible_check_mode }}
+  shell             : kubectl apply -f "{{ tempdir.path }}/metrics/deploy/1.8+" --dry-run={{ ansible_check_mode }}
   register          : metrics_install
   changed_when      : "'created' in metrics_install.stdout or 'configured' in metrics_install.stdout"
   delegate_to       : "{{ headmaster }}"
   run_once          : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Wait until metrics deployment ready
+  command           : kubectl -n kube-system wait --for condition=available deployment/metrics-server
+  changed_when      : False
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Create bootstrap token
   become            : True

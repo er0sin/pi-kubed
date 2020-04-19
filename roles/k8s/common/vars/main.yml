@@ -24,6 +24,8 @@ features               :
   #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   metrics              :
     enabled            : True
+    # See https://github.com/kubernetes-incubator/metrics-server for braches
+    branch             : release-0.3
     serviceaccount     : default
     # dns_hack -  The metrics-server pod needs to be able to resolve your nodes' hostnames.
     # If there's no DNS server that can resolve your nodes' hosnames, set this to true. Your

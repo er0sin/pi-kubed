@@ -10,8 +10,7 @@
 - name              : Install xfsprogs
   become            : True
   when              :
-  - etcd.storage_device is defined
-  - etcd.storage_device != ''
+  - etcd.storage_device | default(False, True)
   package           :
     name            : xfsprogs
     state           : latest
@@ -22,9 +21,6 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Create /var/lib/etcd
   become            : True
-  when              :
-  - etcd.storage_device is defined
-  - etcd.storage_device != ''
   file              :
     path            : /var/lib/etcd
     state           : directory
@@ -38,8 +34,7 @@
 - name              : Unmount /var/lib/etcd
   become            : True
   when              :
-  - etcd.storage_device is defined
-  - etcd.storage_device != ''
+  - etcd.storage_device | default(False, True)
   - etcd.format == True
   mount             :
     path            : /var/lib/etcd
@@ -49,8 +44,7 @@
 - name              : Create filesystem on block device
   become            : True
   when              :
-  - etcd.storage_device is defined
-  - etcd.storage_device != ''
+  - etcd.storage_device | default(False, True)
   - etcd.format == True
   filesystem        :
     fstype          : xfs
@@ -60,8 +54,7 @@
 - name              : Add /var/lib/etcd to /etc/fstab
   become            : True
   when              :
-  - etcd.storage_device is defined
-  - etcd.storage_device != ''
+  - etcd.storage_device | default(False, True)
   lineinfile        :
     path            : /etc/fstab
     regexp          : '^{{ etcd.storage_device }}\s*\/var\/lib\/etcd\s*xfs\s*.*$'
@@ -73,8 +66,7 @@
 - name              : Mount /var/lib/etcd
   become            : True
   when              :
-  - etcd.storage_device is defined
-  - etcd.storage_device != ''
+  - etcd.storage_device | default(False, True)
   mount             :
     path            : /var/lib/etcd
     src             : "{{ etcd.storage_device }}"

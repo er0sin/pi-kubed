@@ -1,8 +1,10 @@
+{% if  master.in_port != master.cplb_port %}
 ---
 apiVersion: kubeadm.k8s.io/v1beta2
 kind: InitConfiguration
 localAPIEndpoint:
   bindPort: {{ master.in_port }}
+{% endif %}
 ---
 apiVersion: kubeadm.k8s.io/v1beta2
 kind: ClusterConfiguration
