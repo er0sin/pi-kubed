@@ -62,6 +62,7 @@
   - init
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Enable Secret Encryption (Part 2)
+  when              : features.encryption.enabled
   import_tasks      : "{{ role_path }}/../common/tasks/encryption.yml"
   tags              :
   - encryption
