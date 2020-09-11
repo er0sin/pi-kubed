@@ -1,11 +1,12 @@
-load_module /usr/lib/nginx/modules/ngx_stream_module.so;
+load_module {{ module_path }};
+
 events { }
 
 stream {
     upstream backend {
         least_conn;
-{% for host in groups['k8s'] %}
-        server {{ host }}:{{ master.in_port }} max_fails=1;
+{% for host in groups['k8s_leader'] + groups['k8s_masters'] %}
+        server {{ host }}:{{ master.api_port }} max_fails=1;
 {% endfor %}
     }
 

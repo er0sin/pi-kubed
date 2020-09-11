@@ -9,22 +9,60 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Install packages
   become            : True
+  when              :
+  - master.cplb_vip  # cplb enabled
+  - not master.external_cplb
   package           :
     name            : "{{ item }}"
-    state           : latest
+    state           : "{{ 'absent' if item == 'nginx' and not master.cplb_port else 'present'}}"
     update_cache    : True
   with_items        :
   - nginx
   - keepalived
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Find ngx_stream_module.so
+  when              :
+  - master.cplb_vip  # cplb enabled
+  - not master.external_cplb
+  - master.cplb_port
+  stat              :
+    path            : "{{ item }}"
+  register          : module
+  with_items        :
+  - /usr/lib/nginx/modules/ngx_stream_module.so
+  - /usr/lib64/nginx/modules/ngx_stream_module.so
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Copy nginx.conf
+  vars              :
+    module_path     : "{{ module.results | selectattr('stat', 'contains', 'path') | map(attribute='stat') | map(attribute='path') | list | first }}"
+  when              :
+  - master.cplb_vip  # cplb enabled
+  - not master.external_cplb
+  - master.cplb_port # nginx load balancing enabled
   become            : True
   template          :
     src             : templates/nginx.conf.j2
     dest            : /etc/nginx/nginx.conf
+    mode            : 0644
   register          : nginx_conf
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Allow NGINX to listen on tcp port "{{ master.cplb_port }}"
+  when              :
+  - master.cplb_vip  # cplb enabled
+  - not master.external_cplb
+  - master.cplb_port # nginx load balancing enabled
+  become            : True
+  seport            :
+    ports           : "{{ master.cplb_port }}"
+    proto           : tcp
+    setype          : http_port_t
+    state           : present
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Start NGINX
+  when              :
+  - master.cplb_vip  # cplb enabled
+  - not master.external_cplb
+  - master.cplb_port # nginx load balancing enabled
   become            : True
   systemd           :
     name            : nginx
@@ -32,30 +70,39 @@
     enabled         : True
   no_log            : True # log for this is useless and verbose
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- name              : Check if keepalived.conf exists
-  stat              :
-    path            : /etc/keepalived/keepalived.conf
-  register          : keepalived_conf
+- name              : Check if keepalived running
+  service_facts     :
+  no_log            : True
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- name              : Generate Key
+- name              : Generate Key for keepalived
   when              :
-  - not keepalived_conf.stat.exists
+  - master.cplb_vip  # cplb enabled
+  - not master.external_cplb
+  - ansible_facts.services['keepalived.service']['state'] != 'running'
   # Ansible's b64encode filter doesn't support binary data, so encode in shell instead
   shell             : "head -c 16 /dev/urandom | base64"
   register          : generated_key
   no_log            : True
   changed_when      : False
+  run_once          : True
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Copy keepalived.conf
   when              :
-  - not keepalived_conf.stat.exists
+  - master.cplb_vip  # cplb enabled
+  - not master.external_cplb
+  - ansible_facts.services['keepalived.service']['state'] != 'running'
   become            : True
   template          :
     src             : templates/keepalived.conf.j2
     dest            : /etc/keepalived/keepalived.conf
+    mode            : 0644
   register          : keepalived_conf
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Start keepalived
+  when              :
+  - master.cplb_vip  # cplb enabled
+  - not master.external_cplb
+  - ansible_facts.services['keepalived.service']['state'] != 'running'
   become            : True
   systemd           :
     name            : keepalived
