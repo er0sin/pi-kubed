@@ -13,6 +13,15 @@
   tags              :
   - always
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Find leader
+  set_fact          :
+    leader          : "{{ groups.k8s_leader | first }}"
+    am_leader       : "{{ 'k8s_leader' in group_names }}"
+    am_master       : "{{ 'k8s_masters' in group_names or 'k8s_leader' in group_names }}"
+    am_worker       : "{{ 'k8s_workers' in group_names }}"
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Install Packages
   become            : True
   package           :
@@ -20,59 +29,121 @@
     state           : latest
     update_cache    : True
   with_items        :
-  - xfsprogs
   - lvm2
   tags              :
   - packages
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- name              : Create /var/lib/rook
-  become            : True
-  when              :
-  - features.ceph.enabled | default(False)
-  - features.ceph.storage_device is defined
-  file              :
-    path            : /var/lib/rook
+- name              : Create tempdir
+  when              : am_leader
+  tempfile          :
     state           : directory
-    owner           : root
-    group           : root
-    mode            : 0700
-  tags              :
-  - mount
+  changed_when      : False
+  delegate_to       : "{{ leader }}"
+  run_once          : True
+  register          : tempdir
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- name              : Create filesystem on block device
-  become            : True
-  when              :
-  - features.ceph.enabled | default(False)
-  - features.ceph.storage_device is defined
-  - features.ceph.storage_device != ''
-  - features.ceph.format == True
-  filesystem        :
-    fstype          : xfs
-    dev             : "{{ features.ceph.storage_device }}"
+- name              : Clone rook-ceph repo
+  when              : am_leader
+  git               :
+    repo            : https://github.com/rook/rook.git
+    version         : "release-{{ features.ceph.version }}"
+    dest            : "{{ tempdir.path }}"
+  environment       :
+    GIT_SSL_NO_VERIFY: true
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- name              : Add /var/lib/rook to /etc/fstab
-  become            : True
-  when              :
-  - features.ceph.enabled | default(False)
-  - features.ceph.storage_device is defined
-  lineinfile        :
-    path            : /etc/fstab
-    regexp          : '^{{ features.ceph.storage_device }}\s*\/var\/lib\/rook\s*xfs\s*.*$'
-    line            : "{{ features.ceph.storage_device }}             /var/lib/rook   xfs     defaults,nodev,nosuid,noexec,noatime  0       0"
-  tags              :
-  - mount
+- name              : Read cluster.yaml
+  when              : am_leader
+  slurp             :
+    path            : "{{ tempdir.path }}/cluster/examples/kubernetes/ceph/cluster.yaml"
+  register          : cluster_yaml_raw
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- name              : Mount /var/lib/rook
-  become            : True
+- name              : Save cluster.yaml
+  when              : am_leader
+  vars              :
+    cluster_patch   :
+      spec          :
+        storage     :
+          useAllDevices: false
+          deviceFilter: "{{ features.ceph.storage_device }}"
+    cluster_yaml    : "{{ cluster_yaml_raw.content | b64decode | from_yaml | combine(cluster_patch, recursive=True) }}"
+  copy              :
+    content         : "{{ cluster_yaml | to_nice_yaml(indent=2) }}"
+    dest            : "{{ tempdir.path }}/cluster/examples/kubernetes/ceph/cluster.yaml"
+    mode            : 0664
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install rook-ceph pre-reqs
+  when              : am_leader
+  command           : kubectl apply -f "{{ tempdir.path }}/cluster/examples/kubernetes/ceph/common.yaml"
+  register          : common
+  changed_when      : "'configured' in common.stdout or 'created' in common.stdout"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Configure Admission Controller
+  when              : am_leader
+  shell             : "{{ tempdir.path }}/cluster/examples/kubernetes/ceph/config-admission-controller.sh"
+  failed_when       : False
+  register          : ac
+  changed_when      : "'AlreadyExists' not in ac.stdout"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install rook-ceph operator
+  when              : am_leader
+  command           : kubectl apply -f "{{ tempdir.path }}/cluster/examples/kubernetes/ceph/operator.yaml"
+  register          : operator
+  changed_when      : "'configured' in operator.stdout or 'created' in operator.stdout"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Wait until Admission Controller and Opetator are ready
+  when              : am_leader
+  command           : "kubectl -n rook-ceph wait --for condition=available deployment/{{ item }} --timeout=60s"
+  register          : wait
+  until             : wait.rc == 0
+  retries           : 3
+  delay             : 5
+  with_items        :
+  - rook-ceph-admission-controller
+  - rook-ceph-operator
+  changed_when      : False
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install rook-ceph cluster
+  when              : am_leader
+  command           : kubectl apply -f "{{ tempdir.path }}/cluster/examples/kubernetes/ceph/cluster.yaml"
+  register          : cluster
+  changed_when      : "'configured' in cluster.stdout or 'created' in cluster.stdout"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Wait until rook-ceph deployments are ready
+  when              : am_leader
+  command           : "kubectl -n rook-ceph wait --for condition=available deployment/{{ item }} --timeout=60s"
+  register          : wait
+  until             : wait.rc == 0
+  retries           : 3
+  delay             : 5
+  with_items        :
+  - csi-cephfsplugin-provisioner
+  - csi-rbdplugin-provisioner
+  - rook-ceph-mon-a
+  changed_when      : False
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Wait until rook-ceph-crashcollector is ready (Up to 10 min)
   when              :
-  - features.ceph.enabled | default(False)
-  - features.ceph.storage_device is defined
-  mount             :
-    path            : /var/lib/rook
-    src             : "{{ features.ceph.storage_device }}"
-    state           : mounted
-    fstype          : xfs
-    opts            : defaults,nodev,nosuid,noexec,noatime
-  tags              :
-  - mount
+  - am_worker
+  - not am_master
+  command           : "kubectl -n rook-ceph wait --for condition=available deployment/rook-ceph-crashcollector-{{ ansible_hostname }} --timeout=10m"
+  register          : wait
+  until             : wait.rc == 0
+  retries           : 3
+  delay             : 5
+  changed_when      : False
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install rook-ceph StorageClass and CephBlockPool
+  when              : am_leader
+  command           : kubectl apply -f "{{ tempdir.path }}/cluster/examples/kubernetes/ceph/csi/rbd/storageclass.yaml"
+  register          : sc
+  changed_when      : "'configured' in sc.stdout or 'created' in sc.stdout"
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Make rook-cph StorageClass default
+  when              :
+  - am_leader
+  - features.ceph.default_sc
+  command           : |
+                      kubectl patch storageclass rook-ceph-block -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+  register          : default_sc
+  changed_when      : "'no change' not in default_sc.stdout"
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

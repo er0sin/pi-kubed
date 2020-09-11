@@ -52,10 +52,10 @@ features               :
       end              : 192.168.1.50
   #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   ceph                 :
-    # Not implemented
     enabled            : False
-    storage_device     : /dev/sda2
-    format             : True
+    version            : 1.4
+    storage_device     : sda2
+    default_sc         : True
   #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   minio                :
     # Not implemented
