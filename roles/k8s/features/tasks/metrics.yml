@@ -1,18 +1,9 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- name              : Install git
-  become            : True
-  package           :
-    name            : git
-    state           : latest
-    update_cache    : True
-  delegate_to       : "{{ headmaster }}"
-  run_once          : True
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Create tempdir
   tempfile          :
     state           : directory
   changed_when      : False
-  delegate_to       : "{{ headmaster }}"
+  delegate_to       : "{{ leader }}"
   run_once          : True
   register          : tempdir
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -24,64 +15,96 @@
   tags              :
   - dns_hack
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- name              : Clone metrics server repo
-  git               :
-    repo            : https://github.com/kubernetes-incubator/metrics-server
-    dest            : "{{ tempdir.path }}/metrics"
-    depth           : 1
-    version         : "{{ features.metrics.branch }}"
+- name              : Download metrics server deployment
+  uri               :
+    url             : "https://github.com/kubernetes-sigs/metrics-server/releases/download/{{ features.metrics.release }}/components.yaml"
+    dest            : "{{ tempdir.path }}/components.yaml"
+    validate_certs  : False
   changed_when      : False
-  delegate_to       : "{{ headmaster }}"
+  delegate_to       : "{{ leader }}"
   run_once          : True
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Adjust deployment for current cpu arch
   when              : ansible_architecture != 'x86_64'
   replace           :
-    path            : "{{ tempdir.path }}/metrics/deploy/1.8+/metrics-server-deployment.yaml"
+    path            : "{{ tempdir.path }}/components.yaml"
     regexp          : "amd64"
     replace         : "{{ arc_map[ansible_architecture].k8s }}"
   changed_when      : False
-  delegate_to       : "{{ headmaster }}"
+  delegate_to       : "{{ leader }}"
   run_once          : True
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Install metrics server
-  shell             : kubectl apply -f "{{ tempdir.path }}/metrics/deploy/1.8+" --dry-run={{ ansible_check_mode }}
+  shell             : kubectl apply -f "{{ tempdir.path }}/components.yaml" --dry-run={{ 'client' if ansible_check_mode else 'none' }}
   register          : metrics_install
   changed_when      : "'created' in metrics_install.stdout or 'configured' in metrics_install.stdout"
-  delegate_to       : "{{ headmaster }}"
+  delegate_to       : "{{ leader }}"
   run_once          : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Switch metrics-server to hostNetwork if using weave
+  when              : cni_plugin == 'weave'
+  command           : >
+                      kubectl patch deployment metrics-server -n kube-system -p
+                      '{
+                         "spec":{
+                           "template":{
+                             "spec": {
+                               "hostNetwork":true
+                             }
+                           }
+                         }
+                       }'
+  register          : patch
+  delegate_to       : "{{ leader }}"
+  run_once          : True
+  changed_when      :
+  - "'patched' in patch.stdout"
+  - "'no change' not in patch.stdout"
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Wait until metrics deployment ready
   command           : kubectl -n kube-system wait --for condition=available deployment/metrics-server
+  delegate_to       : "{{ leader }}"
   changed_when      : False
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Create bootstrap token
   become            : True
   command           : kubeadm token create
-  args              :
-    creates         : /etc/kubernetes/bootstrap-kubelet.conf
   register          : token
-  delegate_to       : "{{ headmaster }}"
-  run_once          : False
+  delegate_to       : "{{ leader }}"
+  run_once          : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Load kubelet config
+  become            : True
+  slurp             :
+    src             : /etc/kubernetes/kubelet.conf
+  register          : kubelet_conf_raw
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Generate bootstrap config
+  vars              :
+    kubelet_conf    : "{{ kubelet_conf_raw['content'] | b64decode | from_yaml }}"
+    # kubelet_conf['clusters'] is a list. selectattr('cluster', 'defined') will filter the list to only those items that have 'cluster' defined.
+    # map(attribute='cluster') will return a list of only 'cluster' objects. Likewise, selectattr('server', 'defined') will filter the list
+    # to only those that have cluster.server defined, and map(attribute='server') will return a list of cluster.server
+    # "server: {{ kubelet_conf['clusters'][0]['cluster']['server'] }}" may be simpler, and would work in most cases, but if something gets added
+    # to the 'clusters' list in the future, it would break
+    clusters        : "{{ kubelet_conf['clusters'] | selectattr('cluster', 'defined') | map(attribute='cluster') | list }}"
+    server          : "{{ clusters | selectattr('server', 'defined') | map(attribute='server') | list | first }}"
   command           : >
     kubectl config set-cluster bootstrap
     --kubeconfig=/tmp/bootstrap-kubelet.conf
     --certificate-authority='/etc/kubernetes/pki/ca.crt'
-    --server {{ ansible_default_ipv4.address }}:{{ master.in_port }}
+    --server {{ server }}
   args              :
     creates         : /etc/kubernetes/bootstrap-kubelet.conf
   register          : set_cluster
   changed_when      : "'set' in set_cluster.stdout"
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Associate bootstrap token to kubelet-bootstrap user
+  when              : set_cluster.changed
   command           : >
     kubectl config set-credentials kubelet-bootstrap
     --kubeconfig=/tmp/bootstrap-kubelet.conf 
     --token={{ token.stdout }}
-  args              :
-    creates         : /etc/kubernetes/bootstrap-kubelet.conf
   register          : set_credentials
   changed_when      : "'set' in set_credentials.stdout"
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -104,13 +127,20 @@
   register          : use_context
   changed_when      : "'Switched to context' in use_context.stdout"
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Check if /tmp/bootstrap-kubelet.conf exists
+  stat              :
+    path            : /tmp/bootstrap-kubelet.conf
+  register          : tmp_bootstrap
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Copy to bootstrap-kubelet.conf to /etc/kubernetes
   become            : True
-  when              : "'/tmp/bootstrap-kubelet.conf' is is_file"
+  when              : tmp_bootstrap.stat.exists and set_cluster.changed
   copy              :
     remote_src      : True
     src             : "/tmp/bootstrap-kubelet.conf"
     dest            : /etc/kubernetes/bootstrap-kubelet.conf
+    mode            : 0600
+  register          : copy_bootstrap
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Check if server certificate rotation is enabled
   become            : True
@@ -126,17 +156,20 @@
     sed -i 's/"/ --rotate-server-certificates"/2' /var/lib/kubelet/kubeadm-flags.env
   args              :
     warn            : False
+  register          : flags
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Rename old kubelet config
-  when              : "'/etc/kubernetes/kubelet.conf' is is_file"
+  when              : copy_bootstrap.changed
   become            : True
   command           : "mv /etc/kubernetes/kubelet.conf /etc/kubernetes/kubelet.old"
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Restart kubelet
+  when              : copy_bootstrap.changed or flags.changed
   become            : True
   systemd           :
     name            : kubelet
     state           : restarted
+  register          : kubelet_restart
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Wait until node Ready
   command           : kubectl get node {{ ansible_hostname }} -o jsonpath={% raw %}"{.status.conditions[?(@.status==\"True\")].type}"{% endraw %}
@@ -149,20 +182,21 @@
   - csr
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Find pending CSRs
-  delegate_to       : "{{ headmaster }}"
-  run_once          : True
-  shell             : "kubectl get csr | grep Pending | awk '{print $1}'"
+  shell             : "kubectl get csr | grep Pending | grep system:node:{{ ansible_hostname }} | awk '{print $1}'"
   register          : csr
+  until             : csr.stdout != ""
+  delay             : "{{ 10 if kubelet_restart.changed else 0 }}"
+  retries           : "{{  6 if kubelet_restart.changed else 0 }}"
+  failed_when       : csr.rc != 0
   changed_when      : False
   tags              :
   - csr
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Approve CSR
-  delegate_to       : "{{ headmaster }}"
-  run_once          : True
-  when              : csr.stdout
-  command           : "kubectl certificate approve {{ item }}"
+  command           : "kubectl certificate {{ 'approve' if ansible_loop.last else 'deny' }} {{ item }}" # Last CSR is most recent
   with_items        : "{{ csr.stdout_lines }}"
+  loop_control      :
+    extended        : True
   tags:
   - csr
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -176,6 +210,6 @@
     path            : "{{ tempdir.path }}"
     state           : absent
   changed_when      : False
-  delegate_to       : "{{ headmaster }}"
+  delegate_to       : "{{ leader }}"
   run_once          : True
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

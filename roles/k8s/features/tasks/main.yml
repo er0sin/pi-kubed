@@ -10,14 +10,14 @@
 - name              : Sanity Check
   assert            :
     that            :
-    - groups.k8s_headmaster | length == 1
-    fail_msg        : Only 1 headmaster allowed
+    - groups.k8s_leader | length == 1
+    fail_msg        : Only 1 leader allowed
   tags              :
   - always
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- name              : Find headmaster
+- name              : Find leader
   set_fact          :
-    headmaster      : "{{ groups.k8s_headmaster | first }}"
+    leader          : "{{ groups.k8s_leader | first }}"
   run_once          : True
   tags              :
   - always
