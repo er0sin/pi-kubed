@@ -1,3 +1,6 @@
+[local]
+localhost ansible_connection=local
+
 [k8s_cplb]
 # Define control plane load balancer nodes here.
 # These nodes will run nginx + keepalived to load balance
@@ -8,7 +11,7 @@ daisy     ansible_user=pi pi_gpu_mem=16
 buttercup ansible_user=pi pi_gpu_mem=16
 milkshake ansible_user=pi pi_gpu_mem=16
 
-[k8s_headmaster]
+[k8s_leader]
 # The first master (control plane) node
 # to get initialised. This may seem like
 # an arbitrary distinction, but kubeadm
@@ -18,12 +21,12 @@ daisy     ansible_user=pi  pi_gpu_mem=16
 
 [k8s_masters]
 # Other master nodes.
-# Will be initialised after k8s_headmaster
+# Will be initialised after k8s_leader
 milkshake ansible_user=pi pi_gpu_mem=16
 buttercup ansible_user=pi pi_gpu_mem=16
 
 [k8s_workers]
-# Worker nodes. They may or may not be\
+# Worker nodes. They may or may not be
 # The same as the master nodes.
 # In production, the masters and workers
 # should be on seperate nodes
@@ -33,7 +36,8 @@ milkshake ansible_user=pi pi_gpu_mem=16
 meatloaf  ansible_user=pi pi_gpu_mem=16
 
 [k8s:children]
+# Don't touch this part
 k8s_cplb
-k8s_headmaster
+k8s_leader
 k8s_masters
 k8s_workers

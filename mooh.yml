@@ -1,5 +1,5 @@
 # 1. Install Ansible
-# 2. Define your nodes in "hosts" file
+# 2. Define your nodes in "hosts" file. They can be hostnames or IPs
 # 3. Make sure you have passwordless sudo on the nodes, and passwordless SSH to the nodes from the host where you run ansible
 # 4. Adjust settings in "roles/k8s/common/vars/main.yml"
 # 5. Adjust locale settings in roles/pi/vars/main.yml 
@@ -19,13 +19,13 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # etcd
 - hosts             :
-  - k8s_headmaster
+  - k8s_leader
   - k8s_masters
   roles             :
   - k8s/master/etcd
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # First k8s master
-- hosts             : k8s_headmaster
+- hosts             : k8s_leader
   roles             :
   - k8s/master/first
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
