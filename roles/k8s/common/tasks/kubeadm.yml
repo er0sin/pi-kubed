@@ -30,12 +30,23 @@
   tags              :
   - packages
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Add yum repo
+  become            : True
+  when              : ansible_pkg_mgr == "yum" or ansible_pkg_mgr == "dnf"
+  yum_repository    :
+    name            : kubernetes
+    description     : Google kubernetes repo
+    baseurl         : "https://packages.cloud.google.com/yum/repos/kubernetes-el7-{{ ansible_architecture }}"
+    state           : present
+  tags              :
+  - packages
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Install kubeadm, kubelet, kubectl
   become            : True
   action            :
     module          : "{{ ansible_pkg_mgr }}"
     update_cache    : True
-    state           : latest
+    state           : present
     name            :
     - kubeadm
     - kubelet
@@ -45,11 +56,30 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Hold kubeadm, kubelet, kubectl
   become            : True
-  action            :
-    module          : "{{ 'dpkg_selections' if ansible_pkg_mgr == 'apt' else 'command' }}"
-    name            : "{{ item if ansible_pkg_mgr == 'apt' else omit }}"
-    selection       : "{{ 'hold' if ansible_pkg_mgr == 'apt' else omit }}"
-    cmd             : "{{ 'yum versionlock ' + item if ansible_pkg_mgr == 'yum' else 'dnf versionlock add ' + item if ansible_pkg_mgr == 'dnf' else omit }}"
+  when              : ansible_pkg_mgr == "apt"
+  dpkg_selections   :
+    name            : "{{ item }}"
+    selection       : hold
+  with_items        :
+  - kubeadm
+  - kubelet
+  - kubectl
+  tags              :
+  - packages
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Hold kubeadm, kubelet, kubectl
+  # TODO: Switch to yum_versionlock when ansible 2.10 is out
+  # See: https://github.com/ansible-collections/community.general/pull/324
+  become            : True
+  when              : ansible_pkg_mgr == "yum" or ansible_pkg_mgr == "dnf"
+  shell             : |
+                       {{ ansible_pkg_mgr }} versionlock list | grep -q {{ item }} && echo "already locked" && exit 0
+                       {{ ansible_pkg_mgr }} versionlock add {{ item }}
+                       exit ${?}
+  args              :
+    warn            : False
+  register          : hold
+  changed_when      : "'already locked' not in hold.stdout"
   with_items        :
   - kubeadm
   - kubelet

@@ -24,7 +24,33 @@ apt_repo_prefs         :
 - kubernetes-xenial
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 cni_urls               :
-  weave                : "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"
+  weave                :
+    manifests          :
+    - "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"
+  flannel              :
+    cidr               : 10.244.0.0/16
+    manifests          :
+    - https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+  cilium               :
+    cidr               : 10.217.0.0/16
+    helm               :
+      repo             : https://helm.cilium.io
+      chart            : cilium/cilium
+      version          : 1.8.2
+      overrides        :
+        global.tunnel                 : vxlan
+        global.autoDirectNodeRoutes   : false
+        global.k8sServiceHost         : "{{ master.cplb_vip }}"
+        global.k8sServicePort         : "{{ master.cplb_port | default(master.api_port, true) }}"
+        global.hostFirewall           : true
+        global.hostServices.enabled   : false
+        global.hubble.enabled         : true
+        global.hubble.listenAddress   : ":4244"
+        global.hubble.metrics.enabled : "{dns,drop,tcp,flow,port-distribution,icmp,http}"
+        global.hubble.relay.enabled   : true
+        global.hubble.ui.enabled      : true
+        global.hubble.metrics.port    : 9092
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 crypto_config          : /etc/kubernetes/pki/encryption.conf
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

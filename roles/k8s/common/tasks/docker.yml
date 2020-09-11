@@ -1,4 +1,14 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install Containerd
+  when              :
+  - ansible_distribution == 'CentOS' or ansible_distribution == 'Red Hat Enterprise Linux'
+  - ansible_distribution_major_version > 7
+  become            : True
+  action            :
+    module          : "{{ ansible_pkg_mgr }}"
+    name            : https://download.docker.com/linux/centos/7/x86_64/stable/Packages/containerd.io-1.2.6-3.3.el7.x86_64.rpm
+    state           : present
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Install Docker
   shell             : curl -sSL get.docker.com | sh
   args              :
@@ -23,8 +33,15 @@
   become            : True
   copy              :
     src             : files/daemon.json
-    dest            : /etc/docker/daemon.json
+    dest            : /etc/docker/
   notify            : Restart docker
   tags              :
   - docker
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Start docker
+  become            : True
+  systemd           :
+    name            : docker
+    state           : started
+    enabled         : True
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

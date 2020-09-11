@@ -1,5 +1,6 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Assemble /etc/hosts
+  when              : use_etc_hosts
   become            : True
   template          :
     src             : templates/hosts.j2
@@ -11,7 +12,7 @@
     module          : "{{ ansible_pkg_mgr }}"
     update_cache    : True
     state           : latest
-    name            : "{{ ['aptitude', 'apt-transport-https'] if ansible_pkg_mgr =='apt' else 'yum-versionlock' if ansible_pkg_mgr == 'yum' else 'python-dnf-plugins-extras-versionlock' if ansible_pkg_mgr == 'dnf' else [] }}"
+    name            : "{{ ['aptitude', 'apt-transport-https'] if ansible_pkg_mgr =='apt' else 'yum-plugin-versionlock' if ansible_pkg_mgr == 'yum' or ansible_pkg_mgr == 'dnf' else [] }}"
   tags              :
   - packages
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -26,7 +27,7 @@
   - swap
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Enable cgroups
-  when              : ansible_lsb.id == "Raspbian"
+  when              : ansible_lsb.id | default('') == "Raspbian"
   become            : True
   lineinfile        :
     path            : /boot/cmdline.txt
@@ -36,6 +37,15 @@
   register          : enable_cgroups
   tags              :
   - cgroups
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Disable firewalld
+  when              : ansible_os_family == "RedHat"
+  become            : True
+  systemd           :
+    name            : firewalld
+    state           : stopped
+    enabled         : False
+    masked          : True
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # https://discuss.kubernetes.io/t/kubernetes-compatible-with-debian-10-buster/7853
 - name              : Switch to legacy iptables
@@ -59,6 +69,13 @@
   reboot            :
   tags              :
   - cgroups
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Load br_netfilter module
+  when              : ansible_os_family == "RedHat"
+  become            : True
+  modprobe          :
+    name            : br_netfilter
+    state           : present
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Set kernel parameters
   become            : True
