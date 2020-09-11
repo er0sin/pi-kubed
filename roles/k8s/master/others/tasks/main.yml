@@ -10,21 +10,21 @@
 - name              : Sanity Check
   assert            :
     that            :
-    - groups.k8s_headmaster | length == 1
-    fail_msg        : Only 1 headmaster allowed
+    - groups.k8s_leader | length == 1
+    fail_msg        : Only 1 leader allowed
   tags              :
   - always
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- name              : Find headmaster
+- name              : Find leader
   set_fact          :
-    headmaster      : "{{ groups.k8s_headmaster | first }}"
+    leader          : "{{ groups.k8s_leader | first }}"
   run_once          : True
   tags              :
   - always
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Generate cert
   become            : True
-  delegate_to       : "{{ headmaster }}"
+  delegate_to       : "{{ leader }}"
   delegate_facts    : False
   run_once          : True
   shell             : "kubeadm init phase upload-certs --upload-certs | grep -v upload-certs"
@@ -34,7 +34,7 @@
   - init
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Print join command
-  delegate_to       : "{{ headmaster }}"
+  delegate_to       : "{{ leader }}"
   delegate_facts    : False
   run_once          : True
   command           : "kubeadm token create --print-join-command --certificate-key {{ cert.stdout }}"
@@ -61,6 +61,12 @@
   tags              :
   - init
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Enable kubelet
+  become            : True
+  systemd           :
+    name            : kubelet.service
+    enabled         : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Enable Secret Encryption (Part 2)
   when              : features.encryption.enabled
   import_tasks      : "{{ role_path }}/../common/tasks/encryption.yml"
@@ -82,6 +88,7 @@
     dest            : "{{ ansible_user_dir }}/.kube/config"
     owner           : "{{ ansible_user_uid | string }}"
     group           : "{{ ansible_user_gid | string }}"
+    mode            : 0600
   tags              :
   - kubeconfig
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

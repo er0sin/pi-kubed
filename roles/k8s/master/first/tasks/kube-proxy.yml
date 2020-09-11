@@ -25,6 +25,7 @@
   copy              :
     content         : "{{ patch | to_nice_yaml(indent=2) }}"
     dest            : "{{ tempdir.path }}/patch.yaml"
+    mode            : 0600
   changed_when      : False
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Patch kube-proxy configmap

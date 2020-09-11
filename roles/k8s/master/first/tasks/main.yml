@@ -11,14 +11,14 @@
   assert            :
     that            :
     - ansible_play_hosts | length == 1
-    - ansible_play_hosts == groups.k8s_headmaster
-    fail_msg        : Only 1 headmaster allowed
+    - ansible_play_hosts == groups.k8s_leader
+    fail_msg        : Only 1 leader allowed
   tags              :
   - always
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- name              : Find headmaster
+- name              : Find leader
   set_fact          :
-    headmaster      : "{{ ansible_play_hosts | first }}"
+    leader          : "{{ ansible_play_hosts | first }}"
   run_once          : True
   tags              :
   - always
@@ -33,6 +33,8 @@
   template          :
     src             : templates/cluster-config.yaml.j2
     dest            : /tmp/cluster-config.yaml
+    mode            : 0600
+  changed_when      : False
   tags              :
   - init
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -45,10 +47,17 @@
   tags              :
   - init
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Enable kubelet
+  become            : True
+  systemd           :
+    name            : kubelet.service
+    enabled         : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Cleanup cluster config
   file              :
     path            : /tmp/cluster-config.yaml
     state           : absent
+  changed_when      : False
   tags              :
   - init
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -73,18 +82,66 @@
     dest            : "{{ ansible_user_dir }}/.kube/config"
     owner           : "{{ ansible_user_uid | string }}"
     group           : "{{ ansible_user_gid | string }}"
+    mode            : 0600
   tags              :
   - kubeconfig
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Install CNI plugin
-  shell             : kubectl apply -f "{{ cni_urls[cni_plugin] }}" --dry-run={{ ansible_check_mode }}
+  shell             : kubectl apply -f "{{ item }}" --dry-run={{ 'client' if ansible_check_mode else 'none' }}
   register          : cni_install
-  changed_when      : "'created' in cni_install.stdout"
+  changed_when      : "'created' in cni_install.stdout or 'configured' in cni_install.stdout"
+  retries           : 3
+  delay             : 5
+  until             : cni_install.rc == 0
+  with_items        : "{{ cni_urls[cni_plugin].manifests | default([]) }}"
+  tags              :
+  - cni
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install CNI plugin
+  when              :
+  - not ( cni_urls[cni_plugin].manifest | default('') )
+  - cni_urls[cni_plugin].helm | default('')
+  shell             :
+    which helm || curl -fsSL https://raw.githubusercontent.com/helm/helm/master/scripts/get | bash -s -- -v v3.3.1 &&
+    helm repo add {{ cni_plugin }} {{ cni_urls[cni_plugin].helm.repo }} &&
+    helm template {{ cni_plugin }} {{ cni_urls[cni_plugin].helm.chart }} --version {{ cni_urls[cni_plugin].helm.version }} --namespace kube-system
+    {% for key,value in cni_urls[cni_plugin].helm.overrides.items() %}
+      --set
+      {{ key }}{% raw %}='{% endraw -%}
+      {{ value }}
+      {%- raw %}'{% endraw %}
+    {% endfor %} | kubectl apply --dry-run={{ 'client' if ansible_check_mode else 'none' }} -f -
+  register          : cni_install
+  changed_when      : "'created' in cni_install.stdout or 'configured' in cni_install.stdout"
   retries           : 3
   delay             : 5
   until             : cni_install.rc == 0
   tags              :
   - cni
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Patch weave-net
+  when              : cni_plugin == 'weave'
+  # https://github.com/weaveworks/weave/issues/3816
+  shell             : >
+                      kubectl -n kube-system patch daemonset weave-net -n kube-system -p
+                      '{
+                         "spec":{
+                           "template":{
+                             "spec":{
+                               "containers":[
+                                 {
+                                   "name":"weave",
+                                    "command": [
+                                      "/bin/sh",
+                                      "-c",
+                                      "sed \"/ipset destroy weave-kube-test$/ i sleep 1\" /home/weave/launch.sh | /bin/sh"
+                                    ]
+                                 }
+                               ]
+                             }
+                           }
+                         }
+                       }'
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Configure kube-proxy
   import_tasks      : kube-proxy.yml

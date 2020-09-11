@@ -13,13 +13,24 @@
   changed_when      : False
   register          : k8s_secrets
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Add CentOs-7-Extras repo
+  become            : True
+  when              :
+  - ansible_distribution == 'CentOS' or ansible_distribution == 'Red Hat Enterprise Linux'
+  - ansible_distribution_major_version > 7
+  yum_repository    :
+    name            : "CentOS-7-Extras"
+    description     : "CentOS-7 - Extras"
+    baseurl         : "http://mirror.centos.org/$contentdir/7/extras/$basearch"
+    state           : present
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Install etcd client to verify etcd is encrypted
   become            : True
   action            :
     module          : "{{ ansible_pkg_mgr }}"
     update_cache    : True
     state           : latest
-    name            : etcd-client
+    name            : "{{ 'etcd-client' if ansible_pkg_mgr == 'apt' else 'etcd' }}"
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Get secrets from etcd
   command           : >

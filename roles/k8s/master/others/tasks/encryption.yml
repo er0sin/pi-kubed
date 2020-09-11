@@ -15,13 +15,13 @@
   register          : tempfile
   changed_when      : False
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- name              : Fetch encryption.conf from headmaster
+- name              : Fetch encryption.conf from leader
   fetch             :
     src             : "{{ crypto_config }}"
     dest            : "{{ tempfile.path }}"
     mode            : 0600
     flat            : True
-  delegate_to       : "{{ headmaster }}" 
+  delegate_to       : "{{ leader }}"
   run_once          : True
   changed_when      : False
   become            : True

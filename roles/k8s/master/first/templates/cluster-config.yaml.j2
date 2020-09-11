@@ -1,20 +1,35 @@
-{% if  master.in_port != master.cplb_port %}
+{% if  master.api_port != 6443 or cloud | default(False, True) %}
 ---
 apiVersion: kubeadm.k8s.io/v1beta2
 kind: InitConfiguration
+{% endif %}
+{% if  master.api_port != 6443 %}
 localAPIEndpoint:
-  bindPort: {{ master.in_port }}
+  bindPort: {{ master.api_port }}
+{% endif %}
+{% if cloud | default(False, True) %}
+nodeRegistration:
+  kubeletExtraArgs:
+    cloud-provider: "external"
 {% endif %}
 ---
 apiVersion: kubeadm.k8s.io/v1beta2
 kind: ClusterConfiguration
-controlPlaneEndpoint: "{{ master.cplb_vip }}:{{ master.cplb_port }}"
+clusterName: {{ cluster_name | default('kubernetes') }}
+controlPlaneEndpoint: "{{ master.cplb_vip | default(ansible_default_ipv4.address, true) }}:{{ master.cplb_port | default(master.api_port, true) }}"
 networking:
   dnsDomain: "{{ cluster_dns_domain }}"
+  podSubnet: {{ cni_urls[cni_plugin].cidr }}
 apiServer:
   extraArgs:
 {% if features.encryption.enabled %}
     encryption-provider-config: {{ crypto_config }}
+{% endif %}
+{% if cloud | default(False, True) %}
+    cloud-provider: "external"
+controllerManager:
+  extraArgs:
+    cloud-provider: "external"
 {% endif %}
 ---
 {% if kube_proxy_mode == 'ipvs' %}
