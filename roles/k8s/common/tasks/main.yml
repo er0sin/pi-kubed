@@ -42,7 +42,7 @@
   when              : ansible_os_family == "RedHat"
   become            : True
   systemd           :
-    name            : firewalld
+    name            : firewalld.service
     state           : stopped
     enabled         : False
     masked          : True

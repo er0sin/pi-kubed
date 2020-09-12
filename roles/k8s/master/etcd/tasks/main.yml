@@ -49,7 +49,7 @@
   filesystem        :
     fstype          : xfs
     dev             : "{{ etcd.storage_device }}"
-    force           : "{{ etcd_force_format | default(False) }}"
+    force           : "{{ etcd.force_format | default(False) }}"
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Add /var/lib/etcd to /etc/fstab
   become            : True

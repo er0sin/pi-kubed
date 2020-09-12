@@ -14,7 +14,7 @@
   args              :
     warn            : False
     creates         : /usr/bin/docker
-  notify            : Restart docker
+  register          : install_docker
   tags              :
   - docker
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -34,14 +34,17 @@
   copy              :
     src             : files/daemon.json
     dest            : /etc/docker/
-  notify            : Restart docker
+  register          : daemon_json
   tags              :
   - docker
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Start docker
   become            : True
   systemd           :
-    name            : docker
-    state           : started
+    name            : docker.service
+    state           : "{{ 'restarted' if install_docker.changed or daemon_json.changed else 'started' }}"
     enabled         : True
+  no_log            : True # log for this is useless and verbose
+  tags              :
+  - docker
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

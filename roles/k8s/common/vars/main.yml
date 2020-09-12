@@ -31,6 +31,7 @@ etcd                   :
   storage_device       : /dev/sda1
   # format - If True, storage_device will be formated, and any existing data will be lost
   format               : False
+  force_format         : False
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 features               :
   #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

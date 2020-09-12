@@ -167,7 +167,7 @@
   when              : copy_bootstrap.changed or flags.changed
   become            : True
   systemd           :
-    name            : kubelet
+    name            : kubelet.service
     state           : restarted
   register          : kubelet_restart
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

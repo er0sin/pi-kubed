@@ -24,6 +24,6 @@ vrrp_instance k8s_api_server {{ "{" }}
 
     authentication {{ "{" }}
         auth_type PASS
-        auth_pass {{ generated_key.stdout }}
+        auth_pass {{ auth_key }}
     {{ "}" }}
 {{ "}" }}

@@ -19,7 +19,9 @@ clusterName: {{ cluster_name | default('kubernetes') }}
 controlPlaneEndpoint: "{{ master.cplb_vip | default(ansible_default_ipv4.address, true) }}:{{ master.cplb_port | default(master.api_port, true) }}"
 networking:
   dnsDomain: "{{ cluster_dns_domain }}"
+{% if cni_urls[cni_plugin].cidr | default(False, True) %}
   podSubnet: {{ cni_urls[cni_plugin].cidr }}
+{% endif %}
 apiServer:
   extraArgs:
 {% if features.encryption.enabled %}

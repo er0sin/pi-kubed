@@ -122,6 +122,7 @@
 - name              : Patch weave-net
   when              : cni_plugin == 'weave'
   # https://github.com/weaveworks/weave/issues/3816
+  # https://github.com/weaveworks/weave/issues/3842
   shell             : >
                       kubectl -n kube-system patch daemonset weave-net -n kube-system -p
                       '{
@@ -131,7 +132,10 @@
                                "containers":[
                                  {
                                    "name":"weave",
-                                    "command": [
+                      {% if ansible_architecture[:3] == 'arm' %}
+                                   "image": "docker.io/weaveworks/weave-kube:2.6.5",
+                      {% endif %}
+                                   "command": [
                                       "/bin/sh",
                                       "-c",
                                       "sed \"/ipset destroy weave-kube-test$/ i sleep 1\" /home/weave/launch.sh | /bin/sh"
@@ -141,7 +145,11 @@
                              }
                            }
                          }
-                       }'
+                         }'
+  register          : patch_weave
+  changed_when      : "'no change' not in patch_weave.stdout"
+  tags              :
+  - cni
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Configure kube-proxy
   import_tasks      : kube-proxy.yml

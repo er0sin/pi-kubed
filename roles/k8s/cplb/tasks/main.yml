@@ -7,6 +7,21 @@
   tags              :
   - always
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Sanity Check
+  assert            :
+    that            :
+    - groups.k8s_leader | length == 1
+    fail_msg        : Only 1 leader allowed
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Find leader
+  set_fact          :
+    leader          : "{{ groups.k8s_leader | first }}"
+  run_once          : True
+  tags              :
+  - always
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Install packages
   become            : True
   when              :
@@ -65,20 +80,39 @@
   - master.cplb_port # nginx load balancing enabled
   become            : True
   systemd           :
-    name            : nginx
+    name            : nginx.service
     state           : "{{ 'restarted' if nginx_conf.changed else 'started' }}"
     enabled         : True
   no_log            : True # log for this is useless and verbose
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- name              : Check if keepalived running
-  service_facts     :
-  no_log            : True
+- name              : Check if keepalived.conf exists
+  when              :
+  - master.cplb_vip  # cplb enabled
+  - not master.external_cplb
+  stat              :
+    path            : /etc/keepalived/keepalived.conf
+  delegate_to       : "{{ leader }}"
+  run_once          : True
+  register          : keepalived_conf
+  become            : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Parse key from existing keepalived.conf
+  when              :
+  - master.cplb_vip  # cplb enabled
+  - not master.external_cplb
+  - keepalived_conf.stat.exists
+  shell             : |
+                      grep "^\s*auth_pass\s" /etc/keepalived/keepalived.conf | awk '{print $2}'
+  delegate_to       : "{{ leader }}"
+  run_once          : True
+  register          : existing_key
+  changed_when      : False
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Generate Key for keepalived
   when              :
   - master.cplb_vip  # cplb enabled
   - not master.external_cplb
-  - ansible_facts.services['keepalived.service']['state'] != 'running'
+  - not existing_key.stdout | default(False, True)
   # Ansible's b64encode filter doesn't support binary data, so encode in shell instead
   shell             : "head -c 16 /dev/urandom | base64"
   register          : generated_key
@@ -87,10 +121,11 @@
   run_once          : True
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Copy keepalived.conf
+  vars              :
+    auth_key        : "{{ existing_key.stdout if existing_key.stdout | default(False) else generated_key.stdout }}"
   when              :
   - master.cplb_vip  # cplb enabled
   - not master.external_cplb
-  - ansible_facts.services['keepalived.service']['state'] != 'running'
   become            : True
   template          :
     src             : templates/keepalived.conf.j2
@@ -102,10 +137,10 @@
   when              :
   - master.cplb_vip  # cplb enabled
   - not master.external_cplb
-  - ansible_facts.services['keepalived.service']['state'] != 'running'
+  - "'k8s_leader' in group_names" # on leader only
   become            : True
   systemd           :
-    name            : keepalived
+    name            : keepalived.service
     state           : "{{ 'restarted' if keepalived_conf.changed else 'started' }}"
     enabled         : True
   no_log            : True # log for this is useless and verbose

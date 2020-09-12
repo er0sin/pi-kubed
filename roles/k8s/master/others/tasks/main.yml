@@ -73,6 +73,16 @@
   tags              :
   - encryption
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Start keepalived
+  when              :
+  - master.cplb_vip  # cplb enabled
+  - not master.external_cplb
+  become            : True
+  systemd           :
+    name            : keepalived.service
+    state           : started
+    enabled         : True
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Create .kube dir
   file              :
     path            : "{{ ansible_user_dir }}/.kube"
