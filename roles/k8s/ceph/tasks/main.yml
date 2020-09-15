@@ -26,10 +26,20 @@
   become            : True
   package           :
     name            : "{{ item }}"
-    state           : latest
+    state           : present
     update_cache    : True
   with_items        :
   - lvm2
+  tags              :
+  - packages
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- name              : Install Git
+  when              : am_leader
+  become            : True
+  package           :
+    name            : git
+    state           : present
+    update_cache    : True
   tags              :
   - packages
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -138,7 +148,7 @@
   register          : sc
   changed_when      : "'configured' in sc.stdout or 'created' in sc.stdout"
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- name              : Make rook-cph StorageClass default
+- name              : Make rook-ceph StorageClass default
   when              :
   - am_leader
   - features.ceph.default_sc

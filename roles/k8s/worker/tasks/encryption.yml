@@ -29,7 +29,7 @@
   action            :
     module          : "{{ ansible_pkg_mgr }}"
     update_cache    : True
-    state           : latest
+    state           : present
     name            : "{{ 'etcd-client' if ansible_pkg_mgr == 'apt' else 'etcd' }}"
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - name              : Get secrets from etcd

@@ -13,7 +13,7 @@
   - etcd.storage_device | default(False, True)
   package           :
     name            : xfsprogs
-    state           : latest
+    state           : present
     update_cache    : True
   tags              :
   - etcd

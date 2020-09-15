@@ -4,7 +4,7 @@
   action            :
     module          : "{{ ansible_pkg_mgr }}"
     update_cache    : True
-    state           : latest
+    state           : present
     name            : ipset
   tags              :
   - kube-proxy

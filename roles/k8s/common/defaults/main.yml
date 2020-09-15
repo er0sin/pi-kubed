@@ -40,7 +40,7 @@ cni_urls               :
       overrides        :
         global.tunnel                 : vxlan
         global.autoDirectNodeRoutes   : false
-        global.k8sServiceHost         : "{{ master.cplb_vip }}"
+        global.k8sServiceHost         : "{{ master.cplb_vip | default(ansible_default_ipv4.address, true) }}"
         global.k8sServicePort         : "{{ master.cplb_port | default(master.api_port, true) }}"
         global.hostFirewall           : true
         global.hostServices.enabled   : false
